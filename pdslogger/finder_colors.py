@@ -32,8 +32,14 @@
 #     _ = subprocess.call(['osascript', '-e', script])
 
 import sys
-import xattr
 from struct import unpack, pack
+
+HAS_XATTR = False
+try:
+    import xattr
+    HAS_XATTR = True
+except ImportError:
+    pass
 
 if sys.version_info >= (3,0):
     BYTES32 = bytes(32)
@@ -44,7 +50,10 @@ COLORS = ['none', 'gray', 'green', 'violet', 'blue', 'yellow', 'red', 'orange']
 FINDER_KEY = u'com.apple.FinderInfo'
 
 def set_color(filename, color_name):
-    if sys.platform != 'darwin': return
+    if not HAS_XATTR:
+        return
+    if sys.platform != 'darwin':
+        return
 
     attrs = xattr.xattr(filename)
     finder_attrs = attrs.copy().get(FINDER_KEY, BYTES32)

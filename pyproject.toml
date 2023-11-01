@@ -12,7 +12,7 @@ dependencies = [
     "numpy",
     "pyparsing",
     "rms-textkernel",
-    "xattr"
+    "xattr; platform_system!='Windows'"
 ]
 license = {text = "Apache-2.0"}
 maintainers = [
