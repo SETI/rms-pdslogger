@@ -15,7 +15,7 @@ import glob
 import shutil
 
 try:
-    import finder_colors
+    import pdslogger.finder_colors as finder_colors
 except ImportError:         # OK because finder_colors are not always used
     pass
 
