@@ -25,7 +25,7 @@ jobs:
 
       # - name: Test
       #   run: |
-      #     python -m unittest pdslogger
+      #     python -m pytest
 
       - name: Build
         run: |
