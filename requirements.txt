@@ -1,2 +1,6 @@
 coverage
+numpy
+pyparsing
 pytest
+rms-textkernel
+xattr
