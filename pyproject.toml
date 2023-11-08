@@ -11,7 +11,6 @@ requires-python = ">=3.7"
 dependencies = [
     "numpy",
     "pyparsing",
-    "rms-textkernel",
     "xattr; platform_system!='Windows'"
 ]
 license = {text = "Apache-2.0"}
