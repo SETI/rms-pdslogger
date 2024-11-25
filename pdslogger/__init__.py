@@ -11,6 +11,7 @@ import pathlib
 import re
 import sys
 import traceback
+import warnings
 
 from collections import defaultdict
 
@@ -35,40 +36,89 @@ INFO    = logging.INFO
 DEBUG   = logging.DEBUG
 HIDDEN  = 1     # Used for messages that are never displayed but might be summarized
 
+_LEVEL_NAME_ALIASES = {
+    'warn': 'warning',
+    'critical': 'fatal',
+}
+
+def _repair_level_name(name):
+    name = name.lower()
+    name = _LEVEL_NAME_ALIASES.get(name, name)
+    return name
+
 _DEFAULT_LEVEL_BY_NAME = {
     # Standard level values
     'fatal'   : logging.FATAL,  # 50
-    'critical': logging.FATAL,  # 50
     'error'   : logging.ERROR,  # 40
-    'warn'    : logging.WARN,   # 30
     'warning' : logging.WARN,   # 30
     'info'    : logging.INFO,   # 20
     'debug'   : logging.DEBUG,  # 10
     'hidden'  : HIDDEN,         #  1
 
     # Additional level values defined for every PdsLogger
-    'normal'    : logging.INFO,
-    'ds_store'  : logging.DEBUG,
-    'dot_'      : logging.ERROR,
-    'invisible' : logging.WARN,
-    'exception' : logging.FATAL,
-    'header'    : logging.INFO,
+    'normal'   : logging.INFO,
+    'ds_store' : logging.DEBUG,
+    'dot_'     : logging.ERROR,
+    'invisible': logging.WARN,
+    'exception': logging.FATAL,
+    'header'   : logging.INFO,
 }
 
 _DEFAULT_LEVEL_NAMES = {
-    logging.FATAL: 'FATAL',     # 50
-    logging.ERROR: 'ERROR',     # 40
-    logging.WARN : 'WARNING',   # 30
-    logging.INFO : 'INFO',      # 20
-    logging.DEBUG: 'DEBUG',     # 10
-    HIDDEN       : 'HIDDEN',    #  1
+    logging.FATAL: 'fatal',     # 50
+    logging.ERROR: 'error',     # 40
+    logging.WARN : 'warning',   # 30
+    logging.INFO : 'info',      # 20
+    logging.DEBUG: 'debug',     # 10
+    HIDDEN       : 'hidden',    #  1
 }
 
-_DEFAULT_LIMITS_BY_NAME = {     # treating all as unlimited by default now
+_DEFAULT_LIMITS_BY_NAME = {     # we're treating all as unlimited by default now
 }
 
 # Cache of names vs. PdsLoggers
 _LOOKUP = {}
+
+class LoggerError(Exception):
+    """For an exception of this class, `logger.exception()` will write a message into the
+    log with the user-specified level.
+
+    In addition, no traceback will be included in the log.
+    """
+
+    def __init__(self, message, filepath='', *, force=False, level='error'):
+        """Constructor.
+
+        Parameters:
+            message (str or Exception):
+                Text of the message as a string. If an Exception object is provided, the
+                message is derived from this error.
+            filepath (str or pathlib.Path, optional):
+                File path to include in the message. If not specified, the `filepath`
+                appearing in the call to `exception()` will be used.
+            force (bool, optional):
+                True to force the message to be logged even if the logging level is above
+                the level of "warn".
+            level (int or str, optional):
+                The level or level name for a record to enter the log.
+            error (Exception, optional):
+                If specified, the class and message string of this error are included in
+                the new error message.
+        """
+
+        if isinstance(message, Exception):
+            self.message = type(message).__name__ + '(' + str(message) + ')'
+        else:
+            self.message = str(message)
+
+        self.filepath = filepath
+        self.force = force
+        self.level = level
+
+    def __str__(self):
+        if self.filepath:
+            return self.message + ': ' + str(self.filepath)
+        return self.message
 
 ##########################################################################################
 # Handlers
@@ -76,6 +126,24 @@ _LOOKUP = {}
 
 STDOUT_HANDLER = logging.StreamHandler(sys.stdout)
 STDOUT_HANDLER.setLevel(HIDDEN + 1)
+
+def stream_handler(level=HIDDEN+1, stream=sys.stdout):
+    """Stream handler for a PdsLogger, e.g., for directing messages to the terminal.
+
+    Parameters:
+        level (int or str, optional):
+            The minimum logging level at which to log messages; either an int or one of
+            "fatal", "error", "warn", "warning", "info", "debug", or "hidden".
+        stream (stream, optional):
+            An output stream, defaulting to the terminal via sys.stdout.
+    """
+
+    if isinstance(level, str):
+        level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
+
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(level)
+    return handler
 
 
 def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
@@ -118,7 +186,7 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
         raise ValueError(f'Unrecognized rotation for log file {logpath}: "{rotation}"')
 
     if isinstance(level, str):
-        level = _DEFAULT_LEVEL_BY_NAME[level.lower()]
+        level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
 
     # Create the parent directory if needed
     logpath = pathlib.Path(logpath)
@@ -320,13 +388,14 @@ class PdsLogger(logging.Logger):
     alias is printed, including the number suppressed if the limit was exceeded.
 
     A hierarchy is supported within logs. Each call to logger.open() initiates a new
-    logger having its own new limits and, optionally, its own handlers. Using this
-    capability, a program that performs multiple tasks can generate one global log and
-    also a separate log for each task. Each call to open() writes a section header into
-    the log and each call to close() inserts a tally of messages printed at that and
-    deeper tiers of the hierarchy.
+    context having its own new limits, logging level, and, optionally, its own handlers.
+    Using this capability, a program that performs multiple tasks can generate one global
+    log and also a separate log for each task. Each call to open() writes a section header
+    into the log and each call to close() inserts a tally of messages printed at that and
+    deeper tiers of the hierarchy. Alternatively, logger.open() can be used as a context
+    manager using "with".
 
-    BY default, each log record automatically includes a time tag, log name, level, and a
+    By default, each log record automatically includes a time tag, log name, level, and a
     text message. The text message can be in two parts, typically a brief description
     followed by a file path. Optionally, the process ID can also be included. Options are
     provided to control which of these components are included.
@@ -334,13 +403,15 @@ class PdsLogger(logging.Logger):
     In the Macintosh Finder, log files are color-coded by the most severe message
     encountered within the file: green for info, yellow for warnings, red for errors, and
     violet for fatal errors.
+
+    If a PdsLogger has not been assigned any handlers, it prints messages to the terminal.
     """
 
     _LOGGER_IS_FAKE = False     # Used by EasyLogger below
 
     def __init__(self, logname, *, default_prefix='pds.', levels={}, limits={}, roots=[],
-                 timestamps=True, digits=6, lognames=True, pid=False, indent=True,
-                 blanklines=True, colors=True, maxdepth=6, level=HIDDEN+1, ):
+                 level=HIDDEN+1, timestamps=True, digits=6, lognames=True, pid=False,
+                 indent=True, blanklines=True, colors=True, maxdepth=6):
         """Constructor for a PdsLogger.
 
         Parameters:
@@ -348,7 +419,7 @@ class PdsLogger(logging.Logger):
                 Name of the logger. Each name for a logger must be globally unique.
             default_prefix (str, optional)
                 The prefix to prepend to the logname if it is not already present. By
-                default it is "pds.".
+                default, this is "pds.".
             levels (dict, optional):
                 A dictionary of level names and their values. These override or augment
                 the default level values.
@@ -359,6 +430,8 @@ class PdsLogger(logging.Logger):
                 Character strings to suppress if they appear at the beginning of file
                 paths. Used to reduce the length of log entries when, for example, every
                 file path is on the same physical volume.
+            level (int or str, optional):
+                The minimum level or level name for a record to enter the log.
             timestamps (bool, optional):
                 True to include timestamps in the log records.
             digits (int, optional):
@@ -378,9 +451,149 @@ class PdsLogger(logging.Logger):
             maxdepth (int, optional):
                 Maximum depth of the logging hierarchy, needed to prevent unlimited
                 recursion.
-            level (int or str, optional):
-                The minimum level of level name for a record to enter the log.
         """
+
+        logname = self._full_logname(logname, default_prefix)
+
+        self._logname = logname
+        if self._LOGGER_IS_FAKE:
+            self._logger = None
+        else:
+            if logname in _LOOKUP:                              # pragma: no cover
+                raise ValueError(f'PdsLogger {self._logname} already exists')
+            _LOOKUP[self._logname] = self                       # Save logger in cache
+            self._logger = logging.getLogger(self._logname)
+
+        # Merge the dictionary of levels and their names
+        self._level_by_name = _DEFAULT_LEVEL_BY_NAME.copy()     # name -> level
+        self._level_names = _DEFAULT_LEVEL_NAMES.copy()         # level -> primary name
+        self._merge_level_names(levels)
+
+        # Define roots
+        if isinstance(roots, str):
+            roots = [roots]
+        self._roots = []
+        self.add_root(*roots)
+
+        # Fill in default format values
+        if level is None:
+            level = level or HIDDEN + 1
+        if timestamps is None:
+            timestamps = True
+        if digits is None:
+            digits = 6
+        if lognames is None:
+            lognames = True
+        if pid is None:
+            pid = False
+        if indent is None:
+            indent = True
+        if blanklines is None:
+            blanklines = True
+        if colors is None:
+            colors = True
+        if maxdepth is None:
+            maxdepth = 6
+
+        # Save log record format info
+        self._timestamps = bool(timestamps)
+        self._digits = digits
+        self._lognames = bool(lognames)
+        self._pid = os.getpid() if pid else 0
+        self._indent = bool(indent)
+        self._blanklines = bool(blanklines)
+        self._colors = bool(colors)
+        self._maxdepth = maxdepth
+
+        self._handlers = []         # complete list of handlers across all tiers
+        self._suppressions_logged = set()   # level names having had a suppression message
+
+        # Support for multiple tiers in hierarchy
+        self._titles              = [self._logname]
+        self._start_times         = [datetime.datetime.now()]
+        self._counters_by_name    = [defaultdict(int)]
+        self._suppressed_by_name  = [defaultdict(int)]
+        self._local_handlers      = [[]]    # handlers at this tier but not above
+
+        self._min_levels          = [0]
+        self.set_level(level)
+
+        self._limits_by_name = [defaultdict(lambda: -1)]
+        self._limits_by_name[-1].update(_DEFAULT_LIMITS_BY_NAME)
+        for level_name, level_num in limits.items():
+            self.set_limit(level_name, level_num)
+
+    @staticmethod
+    def get_logger(logname, *, default_prefix='pds.', levels={}, limits={}, roots=[],
+                   level=None, timestamps=None, digits=None, lognames=None, pid=None,
+                   indent=None, blanklines=None, colors=None, maxdepth=None):
+        """Return the current logger by this name if it already exists; otherwise,
+        construct and return a new PdsLogger.
+
+        Parameters:
+            logname (str):
+                Name of the logger.
+            default_prefix (str, optional)
+                The prefix to prepend to the logname if it is not already present. By
+                default, this is "pds.".
+            levels (dict, optional):
+                A dictionary of level names and their values. These override or augment
+                the default level values.
+            limits (dict, optional):
+                A dictionary indicating the upper limit on the number of messages to log
+                as a function of level name.
+            roots (list[str or pathlib.Path], optional):
+                Character strings to suppress if they appear at the beginning of file
+                paths. Used to reduce the length of log entries when, for example, every
+                file path is on the same physical volume.
+            level (int or str, optional):
+                The minimum level or level name for a record to enter the log.
+            timestamps (bool, optional):
+                True to include timestamps in the log records.
+            digits (int, optional):
+                Number of fractional digits in the seconds field of the timestamp.
+            lognames (bool, optional):
+                True to include the name of the logger in the log records.
+            pid (bool, optional):
+                True to include the process ID in each log record.
+            indent (bool, optional):
+                True to include a sequence of dashes in each log record to provide a
+                visual indication of the tier in a logging hierarchy.
+            blanklines (bool, optional):
+                True to include a blank line in log files when a tier in the hierarchy is
+                closed; False otherwise.
+            colors (bool, optional):
+                True to color-code any log files generated, for Macintosh only.
+            maxdepth (int, optional):
+                Maximum depth of the logging hierarchy, needed to prevent unlimited
+                recursion.
+        """
+
+        logname = PdsLogger._full_logname(logname, default_prefix)
+        if logname in _LOOKUP:
+            logger = _LOOKUP[logname]
+            logger.set_format(level=level, timestamps=timestamps, digits=digits,
+                              lognames=lognames, pid=pid, indent=indent,
+                              blanklines=blanklines, colors=colors, maxdepth=maxdepth)
+            logger._merge_level_names(levels)
+
+            for name, value in limits.items():
+                logger.set_limit(name, value)
+
+            roots = [roots] if isinstance(roots, str) else roots
+            for name in roots:
+                logger.add_root(name, value)
+
+            return logger
+
+        return PdsLogger(logname, levels=levels, limits=limits, roots=roots, level=level,
+                         timestamps=timestamps, digits=digits, lognames=lognames, pid=pid,
+                         indent=indent, blanklines=blanklines, colors=colors,
+                         maxdepth=maxdepth)
+
+    @staticmethod
+    def _full_logname(logname, default_prefix='pds.'):
+        """The full log name with the prefix pre-pended if necessary."""
 
         if default_prefix:
             default_prefix = default_prefix.rstrip('.') + '.'   # exactly one trailing dot
@@ -389,66 +602,27 @@ class PdsLogger(logging.Logger):
 
         parts = logname.split('.')
         if len(parts) not in (2, 3):
-            raise ValueError('Log names must be of the form [pds.]xxx or [pds.]xxx.yyy')
+            raise ValueError(f'Log names must be of the form [{default_prefix}]xxx or '
+                             f'[{default_prefix}]xxx.yyy')
 
-        self._logname = logname
-        if self._LOGGER_IS_FAKE:
-            self._logger = None
-        else:
-            if logname in _LOOKUP:                                  # pragma: no cover
-                raise ValueError(f'PdsLogger {self._logname} already exists')
-            _LOOKUP[self._logname] = self           # Save logger in cache
-            self._logger = logging.getLogger(self._logname)
+        return logname
 
-        if isinstance(roots, str):
-            roots = [roots]
-        self._roots = []
-        self.add_root(*roots)
+    def _merge_level_names(self, levels):
+        """Merge the given dictionary mapping level names to numbers into the internal
+        dictionaries.
+        """
 
-        # Merge the dictionary of levels and their names
-        self._level_by_name = _DEFAULT_LEVEL_BY_NAME.copy()     # name -> level
         for level_name, level_num in levels.items():
             if isinstance(level_num, str):
-                level_num = _DEFAULT_LEVEL_BY_NAME[level_num.lower()]
+                level_num = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level_num)]
             self._level_by_name[level_name] = level_num
 
-        self._level_names = _DEFAULT_LEVEL_NAMES.copy()         # level -> primary name
         for level_name, level_num in self._level_by_name.items():
             if level_num not in self._level_names:
                 self._level_names[level_num] = level_name
 
-        # Support for multiple tiers in hierarchy
-        self._titles              = [self._logname]
-        self._start_times         = [datetime.datetime.now()]
-        self._counters_by_name    = [defaultdict(int)]
-        self._suppressed_by_name  = [defaultdict(int)]
-        self._counters_by_level   = [defaultdict(int)]
-        self._suppressed_by_level = [defaultdict(int)]
-        self._local_handlers      = [[]]    # handlers at this tier but not above
-
-        self._handlers = []     # complete list of handlers across all tiers
-
-        # Merge the dictionary of limits
-        limits_by_name = _DEFAULT_LIMITS_BY_NAME.copy()
-        for level_name, level_num in self._level_by_name.items():
-            limits_by_name.get(level_name, -1)
-        for level_name, level_num in limits.items():
-            limits_by_name[level_name] = level_num
-        self._limits_by_name = [limits_by_name]
-
-        # Log record format info
-        self._timestamps = timestamps
-        self._digits = digits
-        self._lognames = lognames
-        self._pid = os.getpid() if pid else 0
-        self._indent = indent
-        self._blanklines = blanklines
-        self._colors = colors
-        self._maxdepth = maxdepth
-        self.set_level(level)
-
     def set_level(self, level):
-        """Set the level of messages for this logger.
+        """Set the level of messages for the current tier in the logger's hierarchy.
 
         Parameters;
             level (int or str, optional):
@@ -456,15 +630,78 @@ class PdsLogger(logging.Logger):
         """
 
         if isinstance(level, str):
-            self._min_level = self._level_by_name[level.lower()]
+            self._min_levels[-1] = self._level_by_name[_repair_level_name(level)]
         else:
-            self._min_level = level
+            self._min_levels[-1] = level
 
         if self._logger:
-            self._logger.setLevel(self._min_level)
+            self._logger.setLevel(self._min_levels[-1])
+
+    def set_format(self, *, level=None, timestamps=None, digits=None, lognames=None,
+                   pid=None, indent=None, blanklines=None, colors=None, maxdepth=None):
+        """Set or modify the formatting and other properties of this PdsLogger.
+
+        Parameters:
+            level (int or str, optional):
+                The minimum level of level name for a record to enter the log.
+            timestamps (bool, optional):
+                True or False, defining whether to include a timestamp in each log record.
+            digits (int, optional):
+                Number of fractional digits in the seconds field of the timestamp.
+            lognames (bool, optional):
+                True or False, defining whether to include the name of the logger in each
+                log record.
+            pid (bool, optional):
+                True or False, defining whether to include the process ID in each log
+                record.
+            indent (bool, optional):
+                True or False, defining whether to include a sequence of dashes in each
+                log record to provide a visual indication of the tier in a logging
+                hierarchy.
+            blanklines (bool, optional):
+                True or False, defining whether to include a blank line in log files when
+                a tier in the hierarchy is closed.
+            colors (bool, optional):
+                True or False, defining whether to color-code the log files generated, for
+                Macintosh only.
+            maxdepth (int, optional):
+                Maximum depth of the logging hierarchy, needed to prevent unlimited
+                recursion.
+        """
+
+        if level is not None:
+            self.set_level(level)
+        if timestamps is not None:
+            self._timestamps = bool(timestamps)
+        if digits is not None:
+            self._digits = digits
+        if lognames is not None:
+            self._lognames = bool(lognames)
+        if pid is not None:
+            self._pid = os.getpid() if pid else 0
+        if indent is not None:
+            self._indent = bool(indent)
+        if blanklines is not None:
+            self._blanklines = bool(blanklines)
+        if colors is not None:
+            self._colors = bool(colors)
+        if maxdepth is not None:
+            self._maxdepth = maxdepth
+
+    def set_limit(self, name, limit):
+        """Set the upper limit on the number of messages with this level name.
+
+        A limit of -1 implies no limit.
+        """
+
+        self._limits_by_name[-1][_repair_level_name(name)] = limit
 
     def add_root(self, *roots):
-        """Add one or more paths to the root path."""
+        """Add one or more paths to the set of root paths.
+
+        When a root path appears at the beginning of a logged file path, the leading
+        portion is suppressed.
+        """
 
         for root_ in roots:
             root_ = str(root_).rstrip('/') + '/'
@@ -479,34 +716,38 @@ class PdsLogger(logging.Logger):
         self._roots = []
         self.add_root(*roots)
 
-    def set_limit(self, name, limit):
-        """Set upper limit on the number of messages with this level name.
-
-        A limit of -1 implies no limit.
-        """
-
-        self._limits_by_name[-1][name.lower()] = limit
-
     def add_handler(self, *handlers):
         """Add one or more handlers to this PdsLogger at the current location in the
         hierarchy.
         """
 
-        if not self._logger:    # if logger is "fake"
+        if not self._logger:                # if logger is EasyLogger or NullLogger
+            if handlers and not hasattr(self, 'warned'):
+                raise ValueError(f'Class {type(self).__name__} does not accept handlers')
+                warnings.warn(f'Class {type(self).__name__} does not accept handlers')
+                self.warned = True
             return
 
+        # Get list of full paths to the log files across all tiers
+        log_files = [handler.baseFilename for handler in self._handlers
+                     if isinstance(handler, logging.FileHandler)]
+
+        # Add each new handler if its filename is unique
         for handler in handlers:
             if handler in self._handlers:
                 continue
+            if (isinstance(handler, logging.FileHandler) and
+                    handler.baseFilename in log_files):
+                continue
 
-            self._logger.addHandler(handler)
-            self._handlers.append(handler)
             self._local_handlers[-1].append(handler)
+            self._handlers.append(handler)
+            self._logger.addHandler(handler)
 
     def remove_handler(self, *handlers):
         """Remove one or more handlers from this PdsLogger."""
 
-        if not self._logger:    # if logger is "fake"
+        if not self._logger:                # if logger is EasyLogger or NullLogger
             return
 
         for handler in handlers:
@@ -523,7 +764,7 @@ class PdsLogger(logging.Logger):
     def remove_all_handlers(self):
         """Remove all the handlers from this PdsLogger."""
 
-        if not self._logger:    # if logger is "fake"
+        if not self._logger:                # if logger is EasyLogger or NullLogger
             return
 
         for handler in self._handlers:
@@ -536,26 +777,20 @@ class PdsLogger(logging.Logger):
         """Replace the existing handlers with one or more new global handlers."""
 
         self.remove_all_handlers()
-        for handler in handlers:
-            if handler in self._handlers:
-                continue
+        self.add_handler(handlers)
 
-            self._logger.addHandler(handler)
-            self._handlers.append(handler)
-            self._local_handlers[0].append(handler)     # install as global
-
-    @staticmethod
-    def get_logger(logname):
-        """The PdsLogger associated with the given name."""
-
-        try:
-            return _LOOKUP['pds.' + logname]
-        except KeyError:
-            return _LOOKUP[logname]
+        # Move the new handlers to the top level
+        if len(self._handlers) > 1:
+            self._handlers[0] = self._handlers[-1]
+            self._handlers[-1] = []
 
     ######################################################################################
     # logger.Logging API support
     ######################################################################################
+
+    @staticmethod
+    def getLogger(*args, **kwargs):
+        return PdsLogger.get_logger(*args, **kwargs)
 
     @property
     def name(self):
@@ -615,31 +850,50 @@ class PdsLogger(logging.Logger):
     # Logging methods
     ######################################################################################
 
-    def open(self, title, filepath='', *, limits={}, handler=[], force=False):
-        """Begin a new set of tests at a new tier in the hierarchy.
+    class _Closer():
+        def __init__(self, logger):
+            self.logger = logger
+
+        def __enter__(self):
+            pass
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            self.logger.close()
+
+    def open(self, title, filepath='', *, level=None, limits={}, handler=[], force=False):
+        """Begin a new tier in the logging hierarchy.
 
         Parameters:
             title (str):
                 Title of the new section of the log.
             filepath (str, optional):
                 Optional file path to include in the title.
+            level (int, or str, optional):
+                The level or level name for the minimum logging level to use within this
+                tier. The default is to preserve the current logging level.
             limits (dict, optional):
                 A dictionary mapping level name to the maximum number of messages of that
                 level to include. Subsequent messages are suppressed. Use a limit of -1 to
                 show all messages.
             handler (Handler or list[Handler], optional):
                 Optional handler(s) to use only until this part of the logger is closed.
-            force (bool, optional):
-                True to force the logging of this message even if the limit has been
-                reached.
+
+        Returns:
+            context manager:
+                A context manager enabling "`open logger.open():`" syntax. If `open()` is
+                not being used as a context manager, this object can be ignored.
         """
 
+        title = str(title)
         if filepath:
             title += ': ' + self._logged_filepath(filepath)
 
-        # Write header message at current level
-        level = self._level_by_name['header']
-        self._logger_log(level, self._logged_text('HEADER', title), force=force)
+        new_level = level or self._min_levels[-1]
+
+        # Write header message at current tier
+        header_level = self._level_by_name['header']
+        if header_level >= min(new_level, self._min_levels[-1]) or force:
+            self._logger_log(header_level, self._logged_text('HEADER', title))
 
         # Increment the hierarchy depth
         if self._get_depth() >= self._maxdepth:
@@ -648,28 +902,10 @@ class PdsLogger(logging.Logger):
         self._titles.append(title)
         self._start_times.append(datetime.datetime.now())
 
-        # Save any level-specific handlers if necessary
+        # Update the handlers
         self._local_handlers.append([])
-        if isinstance(handler, (list, tuple)):
-            handlers = handler
-        else:
-            handlers = [handler]
-
-        # Get list of full paths to the log files across all tiers
-        log_files = [handler.baseFilename for handler in self._handlers
-                     if isinstance(handler, logging.FileHandler)]
-
-        # Add each new handler if its filename is unique
-        for handler in handlers:
-            if handler in self._handlers:
-                continue
-            if (isinstance(handler, logging.FileHandler) and
-                    handler.baseFilename in log_files):
-                continue
-
-            self._logger.addHandler(handler)
-            self._local_handlers[-1].append(handler)
-            self._handlers.append(handler)
+        handlers = handler if isinstance(handler, (list, tuple)) else [handler]
+        self.add_handler(*handlers)
 
         # Set the level-specific limits
         self._limits_by_name.append(self._limits_by_name[-1].copy())
@@ -685,8 +921,13 @@ class PdsLogger(logging.Logger):
         # Create new message counters for this tier
         self._counters_by_name.append(defaultdict(int))
         self._suppressed_by_name.append(defaultdict(int))
-        self._counters_by_level.append(defaultdict(int))
-        self._suppressed_by_level.append(defaultdict(int))
+
+        # Update the logging level
+        self._min_levels.append(new_level)
+        self.set_level(new_level)
+
+        # For use of open() as a context manager
+        return PdsLogger._Closer(self)
 
     def summarize(self):
         """Return a tuple describing the number of logged messages by category in the
@@ -701,8 +942,10 @@ class PdsLogger(logging.Logger):
         fatal = 0
         errors = 0
         warnings = 0
-        tests = 0
-        for level, count in self._counters_by_level[-1].items():
+        total = 0
+        for name, count in self._counters_by_name[-1].items():
+            level = self._level_by_name[name]
+            count += self._suppressed_by_name[-1][name]
             if level >= FATAL:
                 fatal += count
             elif level >= ERROR:
@@ -710,33 +953,45 @@ class PdsLogger(logging.Logger):
             elif level >= WARNING:
                 warnings += count
 
-            tests += count
+            total += count
 
-        return (fatal, errors, warnings, tests)
+        return (fatal, errors, warnings, total)
 
-    def close(self):
+    def close(self, force=False):
         """Close the log at its current hierarchy depth, returning to the previous tier.
 
-        The closure is logged, plus an accounting of the time elapsed and levels
-        identified while this tier was open.
+        The closure is logged, plus a summary of the time elapsed and levels identified
+        while this tier was open.
 
         Returns:
             tuple: (number of fatal errors, number of errors, number of warnings, total
-                    number of messages). These counts include messages that were
-                    suppressed because a limit was reached.
+                number of messages). These counts include messages that were suppressed
+                because a limit was reached.
+            force (bool, int, or str, optional):
+                True to force the logging of all summary messages. Alternatively use a
+                level or level name to force the summary messages only about logged
+                messages at this level and higher.
         """
 
-        # Create a list of messages summarizing results; each item is (level, text)
-        header = self._level_by_name['header']
-        messages = [(header, 'Completed: ' + self._titles[-1])]
+        # Interpret the `force` input
+        if isinstance(force, str):
+            min_level_for_log = self._level_by_name[_repair_level_name(force)]
+        elif isinstance(force, bool):
+            min_level_for_log = HIDDEN + 1 if force else min(self._min_levels[-2:])
+        else:
+            min_level_for_log = force
+
+        # Create a list of messages summarizing results; each item is (logged level, text)
+        header_level = self._level_by_name['header']
+        messages = [(header_level, 'Completed: ' + self._titles[-1])]
 
         if self._timestamps:
             elapsed = datetime.datetime.now() - self._start_times[-1]
-            messages += [(header, 'Elapsed time = ' + str(elapsed))]
+            messages += [(header_level, 'Elapsed time = ' + str(elapsed))]
 
-        # Include messages indicating counts by level name
-        tuples = [(level, name) for name, level in self._counters_by_name[-1].items()]
-        tuples.sort()
+        # Define messages indicating counts by level name
+        tuples = [(level, name) for name, level in self._level_by_name.items()]
+        tuples.sort(reverse=True)
         for level, name in tuples:
             count = self._counters_by_name[-1][name]
             suppressed = self._suppressed_by_name[-1][name]
@@ -748,28 +1003,22 @@ class PdsLogger(logging.Logger):
                 plural = '' if count == 1 else 's'
                 note = f'{count} {capname} message{plural}'
             else:
-                unsuppressed = count - suppressed
-                plural = '' if unsuppressed == 1 else 's'
-                note = (f'{unsuppressed} {capname} message{plural} reported of '
-                        f'{count} total')
+                plural = '' if count == 1 else 's'
+                note = (f'{count} {capname} message{plural} reported of '
+                        f'{count + suppressed} total')
 
-            messages += [(max(level, header), note)]
+            messages += [(level, note)]
 
-        # Transfer the totals to the hierarchy depth above
+        # Transfer the totals to the hierarchy tier above
         if len(self._counters_by_name) > 1:
             for name, count in self._counters_by_name[-1].items():
                 self._counters_by_name[-2][name] += count
                 self._suppressed_by_name[-2][name] += self._suppressed_by_name[-1][name]
 
-            for level, count in self._counters_by_level[-1].items():
-                self._counters_by_level[-2][level] += count
-                self._suppressed_by_level[-2][level] += \
-                                                self._suppressed_by_level[-1][level]
-
         # Determine values to return
-        (fatal, errors, warnings, tests) = self.summarize()
+        (fatal, errors, warnings, total) = self.summarize()
 
-        # Close the handlers this level
+        # Close the handlers at this level
         for handler in self._local_handlers[-1]:
             if handler in self._handlers:
                 self._handlers.remove(handler)
@@ -792,82 +1041,117 @@ class PdsLogger(logging.Logger):
                     pass
 
         # Back up one level in the hierarchy
-        self._titles              = self._titles[:-1]
-        self._start_times         = self._start_times[:-1]
-        self._limits_by_name      = self._limits_by_name[:-1]
-        self._counters_by_name    = self._counters_by_name[:-1]
-        self._suppressed_by_name  = self._suppressed_by_name[:-1]
-        self._counters_by_level   = self._counters_by_level[:-1]
-        self._suppressed_by_level = self._suppressed_by_level[:-1]
-        self._local_handlers      = self._local_handlers[:-1]
+        self._titles             = self._titles[:-1]
+        self._start_times        = self._start_times[:-1]
+        self._limits_by_name     = self._limits_by_name[:-1]
+        self._counters_by_name   = self._counters_by_name[:-1]
+        self._suppressed_by_name = self._suppressed_by_name[:-1]
+        self._local_handlers     = self._local_handlers[:-1]
+        self._min_levels         = self._min_levels[:-1]
 
-        # Log the summary at the higher depth
+        if self._logger and self._min_levels:
+            self._logger.setLevel(self._min_levels[-1])
+
+        # Log the summary at the outer tier
         for level, note in messages:
-            message = self._logged_text('summary', note)
-            self._logger_log(level, message)
+            if level >= min_level_for_log:
+                self._logger_log(header_level, self._logged_text('SUMMARY', note))
 
         # Blank line
         if self._blanklines:
-            self.blankline(header)
+            self.blankline(header_level)
 
-        return (fatal, errors, warnings, tests)
+        return (fatal, errors, warnings, total)
 
-    def log(self, level, message, filepath='', *, force=False):
+    def message_count(self, name):
+        """Return the number of messages generated at this named level since this last
+        open().
+
+        Parameters:
+            name (str): Name of a level.
+
+        Returns:
+            int: The number of messages logged, including any suppressed if a limit was
+                reached.
+        """
+
+        name = _repair_level_name(name)
+        return self._counters_by_name[-1][name] + self._suppressed_by_name[-1][name]
+
+    def log(self, level, message, filepath='', *, force=False, suppress=False):
         """Log one record.
 
         Parameters:
-            level (int or str): logging level or level name.
-            message (str): message to log.
-            filepath (str or pathlib.Path, optional): Path of the relevant file, if any.
-            force (bool, optional): True to force message reporting even if the relevant
-                limit has been reached.
+            level (int or str):
+                Logging level or level name.
+            message (str):
+                Message to log.
+            filepath (str or pathlib.Path, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
         """
 
-        # Determine the level
+        # Determine the level name and number
         if isinstance(level, str):
-            level_name = level.lower()
-            level = self._level_by_name[level_name]
+            level_name_for_log = _repair_level_name(level)
+            level_name_for_count = level_name_for_log
+            level_for_log = self._level_by_name[level_name_for_log]
         elif level in self._level_names:
-            level_name = self._level_names[level]
+            level_name_for_log = self._level_names[level]
+            level_name_for_count = level_name_for_log
+            level_for_log = level
         else:   # Level is not one of 10, 20, 30, etc.
-            level_name = ''
+            level_for_log = level
+            level_name_for_log = self._logged_level_name(level)     # e.g., "ERROR+1"
+            level_for_count = max(10*(level//10), HIDDEN)
+            level_name_for_count = self._level_names[level_for_count]
 
-        # Count the messages at this level
-        if level_name:
-            self._counters_by_name[-1][level_name] += 1
-        if level in self._counters_by_level[-1]:
-            key = level
-        else:
-            key = max(10 * (level//10), HIDDEN)
-        self._counters_by_level[-1][key] += 1
+        # Get the count and limit for messages with this level name
+        count = self._counters_by_name[-1][level_name_for_count]
+        limit = self._limits_by_name[-1].get(level_name_for_count, -1)
 
-        # Log message if necessary
-        limit = self._limits_by_name[-1].get(level_name, -1)
-        if limit < 0 or self._counters_by_name[-1][level_name] <= limit:
+        # Determine whether to print
+        if force:
+            level_for_log = FATAL
             log_now = True
+        elif suppress:
+            log_now = False
+        elif level_for_log < self._min_levels[-1]:
+            log_now = False
+        elif limit < 0:         # -1 means no limit
+            log_now = True
+        elif count >= limit:
+            log_now = False
         else:
-            log_now = force
+            log_now = True
 
+        # Log now
         if log_now:
-            text = self._logged_text(level_name or level, message, filepath)
-            self._logger_log(level, text, force=force)
+            text = self._logged_text(level_name_for_log, message, filepath)
+            self._logger_log(level_for_log, text)
+            self._counters_by_name[-1][level_name_for_count] += 1
+            if not force:
+                self._suppressions_logged.discard(level_name_for_count)
 
-        # Otherwise, count suppressed messages
+        # Otherwise...
         else:
-            self._suppressed_by_name[-1][level_name] += 1
-            self._suppressed_by_level[-1][level] += 1
+            suppressed = self._suppressed_by_name[-1][level_name_for_count]
+            self._suppressed_by_name[-1][level_name_for_count] += 1
 
-            # Note first suppression
-            if self._suppressed_by_name[-1][level_name] == 1 and limit != 0:
-                level_id = self._level_names.get(level, str(level))
-                if level_name.upper() == level_id:
-                    type_ = level_id
-                else:
-                    type_ = level_name + ' ' + level_id
-
-                message = f'Additional {type_} messages suppressed'
-                text = self._logged_text(level_name, message)
-                self._logger_log(level, text)
+            # If this is the first suppressed message due to the limit, notify
+            if (not suppress and limit >= 0
+                    and level_for_log >= self._min_levels[-1]
+                    and level_name_for_count not in self._suppressions_logged):
+                message = f'Additional {level_name_for_count.upper()} messages suppressed'
+                text = self._logged_text(level_name_for_count, message)
+                self._logger_log(level_for_log, text)
+                self._suppressions_logged.add(level_name_for_count)
 
     def debug(self, message, filepath='', force=False):
         """Log a message with level == "debug".
@@ -1026,6 +1310,11 @@ class PdsLogger(logging.Logger):
             self.fatal('**** Interrupted by user')
             raise error
 
+        if isinstance(error, LoggerError):
+            filepath = error.filepath or filepath
+            self.log(error.level, error.message, filepath, force=error.force)
+            return
+
         (etype, value, tb) = sys.exc_info()
         if etype is None:                           # pragma: no cover (can't simulate)
             return      # Exception was already handled
@@ -1040,13 +1329,18 @@ class PdsLogger(logging.Logger):
     def blankline(self, level):
         self._logger_log(level, '')
 
-    def _logger_log(self, level, message, force=False):
-        level = FATAL if force else level
-        if level >= self._min_level:
-            if self._logger and not self._logger.handlers:  # if no handlers, print
-                print(message)
-            else:
-                self._logger.log(level, message)
+    def _logger_log(self, level, message):
+        """Log a message if it exceeds the logging level or is forced.
+
+        Parameters:
+            level (int): Logging level.
+            message (str): Complete message text.
+        """
+
+        if not self._logger.handlers:       # if no handlers, print
+            print(message)
+        else:
+            self._logger.log(level, message)
 
     ######################################################################################
     # Message formatting utilities
@@ -1085,11 +1379,11 @@ class PdsLogger(logging.Logger):
                 parts[-1] = ' |'
             parts += [self._get_depth() * '-', '| ']
 
-        parts += [self._logged_level(level), ' | ', message]
+        parts += [self._logged_level_name(level), ' | ', message]
 
         filepath = self._logged_filepath(filepath)
         if filepath:
-            parts += [': ', filepath]
+            parts += [': ', str(filepath)]
 
         return ''.join(parts)
 
@@ -1120,7 +1414,7 @@ class PdsLogger(logging.Logger):
 
         return filepath
 
-    def _logged_level(self, level):
+    def _logged_level_name(self, level):
         """The name for a level to appear in the log, always upper case.
 
         Parameters:
@@ -1131,14 +1425,14 @@ class PdsLogger(logging.Logger):
         """
 
         if isinstance(level, str):
-            return level.upper()
+            return _repair_level_name(level).upper()
 
         level_name = self._level_names.get(level, '')
         if level_name:
             return level_name.upper()
 
         # Use "<name>+i" where i is the smallest difference above a default name
-        diffs = [(level-lev, name) for lev, name in _DEFAULT_LEVEL_NAMES.items()]
+        diffs = [(level-lev, name.upper()) for lev, name in _DEFAULT_LEVEL_NAMES.items()]
         diffs = [diff for diff in diffs if diff[0] > 0]
         diffs.sort()
         return f'{diffs[0][1]}+{diffs[0][0]}'
@@ -1153,88 +1447,31 @@ class PdsLogger(logging.Logger):
 ##########################################################################################
 
 class EasyLogger(PdsLogger):
-    """Simple subclass of PdsLogger that prints all messages at or above a specified level
-    to the terminal.
-    """
+    """Simple subclass of PdsLogger that prints messages to the terminal."""
 
     _LOGGER_IS_FAKE = True      # Prevent registration as an actual logger
 
-    def __init__(self, logname='easylog', *, default_prefix='pds.', levels={}, limits={},
-                 roots=[], timestamps=True, digits=6, lognames=True, pid=False,
-                 indent=True, blanklines=True, colors=True, maxdepth=6, level=HIDDEN+1):
-        """Constructor for an EasyLogger.
+    def __init__(self, logname='easylog', **kwargs):
+        PdsLogger.__init__(self, logname, **kwargs)
+
+    def _logger_log(self, level, message):
+        """Log a message if it exceeds the logging level or is forced.
 
         Parameters:
-            logname (str):
-                Name of the logger. Each name for a logger must be globally unique.
-            default_prefix (str, optional)
-                The prefix to prepend to the logname if it is not already present. By
-                default it is "pds.".
-            levels (dict, optional):
-                A dictionary of level names and their values. These override or augment
-                the default level values.
-            limits (dict, optional):
-                A dictionary indicating the upper limit on the number of messages to log
-                as a function of level name.
-            roots (list[str or pathlib.Path], optional):
-                Character strings to suppress if they appear at the beginning of file
-                paths. Used to reduce the length of log entries when, for example, every
-                file path is on the same physical volume.
-            timestamps (bool, optional):
-                True to include timestamps in the log records.
-            digits (int, optional):
-                Number of fractional digits in the seconds field of the timestamp.
-            lognames (bool, optional):
-                True to include the name of the logger in the log records.
-            pid (bool, optional):
-                True to include the process ID in each log record.
-            indent (bool, optional):
-                True to include a sequence of dashes in each log record to provide a
-                visual indication of the tier in a logging hierarchy.
-            blanklines (bool, optional):
-                True to include a blank line in log files when a tier in the hierarchy is
-                closed; False otherwise.
-            colors (bool, optional):
-                True to color-code any log files generated, for Macintosh only.
-            maxdepth (int, optional):
-                Maximum depth of the logging hierarchy, needed to prevent unlimited
-                recursion.
-            level (int or str, optional):
-                The minimum level of level name for a record to enter the log.
+            level (int): Logging level.
+            message (str): Complete message text.
         """
 
-        global _LOOKUP
-
-        # Override the test regarding whether this logger already exists
-        saved_lookup = _LOOKUP.copy()
-        _LOOKUP.clear()
-        try:
-            PdsLogger.__init__(self, logname, default_prefix=default_prefix,
-                               levels=levels, limits=limits, roots=roots,
-                               timestamps=timestamps, digits=digits, lognames=lognames,
-                               pid=pid, indent=indent, blanklines=blanklines,
-                               colors=colors, maxdepth=maxdepth, level=level)
-        finally:
-            for key, value in saved_lookup.items():
-                _LOOKUP[key] = value
-
-        self.set_level(level)
-
-    def _logger_log(self, level, message, *, force=False):
-        if isinstance(level, str):
-            level = self._level_by_name[level.lower()]
-        if level >= self._min_level or force:
-            print(message)
+        print(message)
 
 
 class NullLogger(EasyLogger):
-    """Supports the full PdsLogger interface but generally does no logging.
-
-    Messages are only printed when the level is FATAL or when `force` is True.
+    """Simple subclass of PdsLogger that suppresses all messages at except FATAL messages
+    and those that have been forced.
     """
 
-    def _logger_log(self, level, message, *, force=False):
-        if force or level >= FATAL:
+    def _logger_log(self, level, message):
+        if level >= FATAL:
             print(message)
 
 ##########################################################################################

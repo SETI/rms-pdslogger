@@ -16,7 +16,7 @@ import unittest
 TIMETAG = re.compile(r'\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d+')
 ELAPSED = re.compile(r'0:00:00\.\d+')
 
-LEVELS = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL', 'FATAL',
+LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL',
           'NORMAL', 'DS_STORE', 'DOT_', 'INVISIBLE']
 
 class Test_PdsLogger(unittest.TestCase):
@@ -29,9 +29,8 @@ class Test_PdsLogger(unittest.TestCase):
         with redirect_stdout(F):
             L.debug('DEBUG')
             L.info('INFO')
-            L.warn('WARN')
+            L.warn('WARNING')
             L.error('ERROR')
-            L.critical('CRITICAL')
             L.fatal('FATAL')
             L.normal('NORMAL')
             L.ds_store('DS_STORE')
@@ -154,12 +153,13 @@ class Test_PdsLogger(unittest.TestCase):
         # force=False
         F = io.StringIO()
         with redirect_stdout(F):
+            L1.critical('CRITICAL')
             for level in LEVELS:
                 L1.log(level, level, force=False)
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
-        self.assertEqual(result1, " | pds.easylog || CRITICAL | CRITICAL\n"
+        self.assertEqual(result1, " | pds.easylog || FATAL | CRITICAL\n"
                                   " | pds.easylog || FATAL | FATAL\n")
 
     def test_exception(self):
@@ -257,10 +257,10 @@ class Test_PdsLogger(unittest.TestCase):
 
     def test_logged_level(self):
         L = P.EasyLogger()
-        self.assertEqual(L._logged_level('FATAL'), 'FATAL')
-        self.assertEqual(L._logged_level(49), 'ERROR+9')
-        self.assertEqual(L._logged_level(40), 'ERROR')
-        self.assertEqual(L._logged_level(2), 'HIDDEN+1')
+        self.assertEqual(L._logged_level_name('FATAL'), 'FATAL')
+        self.assertEqual(L._logged_level_name(49), 'ERROR+9')
+        self.assertEqual(L._logged_level_name(40), 'ERROR')
+        self.assertEqual(L._logged_level_name(2), 'HIDDEN+1')
 
         F = io.StringIO()
         with redirect_stdout(F):
@@ -361,8 +361,8 @@ class Test_PdsLogger(unittest.TestCase):
                                    '---| DEBUG | DEBUG inside Tier 3',
                                    '---| INFO | INFO inside Tier 3',
                                    '--| SUMMARY | Completed: Tier 3',
-                                   '--| SUMMARY | 1 DEBUG message',
                                    '--| SUMMARY | 1 INFO message',
+                                   '--| SUMMARY | 1 DEBUG message',
                                    '',
                                    '--| DEBUG | DEBUG after Tier 3',
                                    '-| SUMMARY | Completed: Tier 2',
@@ -558,4 +558,5 @@ class Test_PdsLogger(unittest.TestCase):
                 handler.close()
 
         finally:
-            shutil.rmtree(dirpath)
+#             shutil.rmtree(dirpath)
+            pass
