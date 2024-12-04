@@ -474,8 +474,6 @@ class Test_PdsLogger(unittest.TestCase):
 
             error = P.error_handler(dirpath, rotation='ymd')
             pattern = dirpath.as_posix() + '/' + r'ERRORS_\d\d\d\d-\d\d-\d\d\.log'
-            print(pattern)
-            print(error.baseFilename)
             self.assertIsNotNone(re.fullmatch(pattern,
                                               error.baseFilename.replace('\\', '/')))
 
