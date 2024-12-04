@@ -1,9 +1,8 @@
 ################################################################################
 # finder_colors.py
-#
-# Mark Showalter, SETI Institute, April 2017
 ################################################################################
 
+# Old code...
 # import os
 # import subprocess
 #
@@ -41,7 +40,7 @@ try:
 except ImportError:
     pass
 
-if sys.version_info >= (3,0):
+if sys.version_info >= (3, 0):
     BYTES32 = bytes(32)
 else:
     BYTES32 = chr(0)*32

@@ -1,5 +1,9 @@
 coverage
+flake8
+myst-parser
 numpy
 pyparsing
 pytest
-#xattr
+sphinx
+sphinxcontrib-napoleon
+sphinx-rtd-theme
