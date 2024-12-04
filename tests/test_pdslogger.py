@@ -481,9 +481,10 @@ class Test_PdsLogger(unittest.TestCase):
 
             debug = P.file_handler(dirpath / 'DEBUG.txt', rotation='ymdhms',
                                    level='DEBUG', suffix='_test')
-            pattern = (dirpath /
-                       r'DEBUG_\d\d\d\d-\d\d-\d\dT\d\d-\d\d-\d\d_test\.txt').as_posix()
-            self.assertIsNotNone(re.fullmatch(pattern, debug.baseFilename))
+            pattern = dirpath.as_posix() + '/' + \
+                       r'DEBUG_\d\d\d\d-\d\d-\d\dT\d\d-\d\d-\d\d_test\.txt'
+            self.assertIsNotNone(re.fullmatch(pattern,
+                                              debug.baseFilename.replace('\\', '/')))
 
             L = P.PdsLogger('test')
             self.assertRaises(ValueError, P.PdsLogger, 'pds.test')  # duplicate name
