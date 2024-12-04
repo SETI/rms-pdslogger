@@ -209,7 +209,7 @@ class Test_PdsLogger(unittest.TestCase):
             L.info('INFO', 'foo.bar')
             L.info('INFO', pathlib.Path('foo.bar'))
             L.info('INFO', 'a/long/prefix/before/foo.bar')
-            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar'))
+            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar').as_posix())
 
         result = F.getvalue()
         result = ''.join(TIMETAG.split(result))
@@ -221,7 +221,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('INFO', 'a/long/prefix/before/foo.bar')
-            L.info('INFO', pathlib.Path('b/long/prefix/before/foo.bar'))
+            L.info('INFO', pathlib.Path('b/long/prefix/before/foo.bar').as_posix())
 
         result = F.getvalue()
         result = ''.join(TIMETAG.split(result))
@@ -233,7 +233,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('INFO', 'a/long/prefix/before/foo.bar')
-            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar'))
+            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar').as_posix())
 
         result = F.getvalue()
         result = ''.join(TIMETAG.split(result))
@@ -245,7 +245,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('INFO', 'a/long/prefix/before/foo.bar')
-            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar'))
+            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar').as_posix())
 
         result = F.getvalue()
         result = ''.join(TIMETAG.split(result))
@@ -474,7 +474,10 @@ class Test_PdsLogger(unittest.TestCase):
 
             error = P.error_handler(dirpath, rotation='ymd')
             pattern = (dirpath / r'ERRORS_\d\d\d\d-\d\d-\d\d\.log').as_posix()
-            self.assertIsNotNone(re.fullmatch(pattern, error.baseFilename))
+            print(pattern)
+            print(error.baseFilename)
+            self.assertIsNotNone(re.fullmatch(pattern,
+                                              error.baseFilename.replace('\\', '/')))
 
             debug = P.file_handler(dirpath / 'DEBUG.txt', rotation='ymdhms',
                                    level='DEBUG', suffix='_test')
