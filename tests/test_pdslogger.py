@@ -473,7 +473,7 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
 
             error = P.error_handler(dirpath, rotation='ymd')
-            pattern = (dirpath / r'ERRORS_\d\d\d\d-\d\d-\d\d\.log').as_posix()
+            pattern = dirpath.as_posix() + '/' + r'ERRORS_\d\d\d\d-\d\d-\d\d\.log'
             print(pattern)
             print(error.baseFilename)
             self.assertIsNotNone(re.fullmatch(pattern,
