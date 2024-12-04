@@ -116,15 +116,15 @@ will yield:
 # Contributing
 
 Information on contributing to this package can be found in the
-[Contributing Guide](https://github.com/SETI/rms-vax/blob/main/CONTRIBUTING.md).
+[Contributing Guide](https://github.com/SETI/rms-pdslogger/blob/main/CONTRIBUTING.md).
 
 # Links
 
-- [Documentation](https://rms-vax.readthedocs.io)
-- [Repository](https://github.com/SETI/rms-vax)
-- [Issue tracker](https://github.com/SETI/rms-vax/issues)
-- [PyPi](https://pypi.org/project/rms-vax)
+- [Documentation](https://rms-pdslogger.readthedocs.io)
+- [Repository](https://github.com/SETI/rms-pdslogger)
+- [Issue tracker](https://github.com/SETI/rms-pdslogger/issues)
+- [PyPi](https://pypi.org/project/rms-pdslogger)
 
 # Licensing
 
-This code is licensed under the [Apache License v2.0](https://github.com/SETI/rms-vax/blob/main/LICENSE).
+This code is licensed under the [Apache License v2.0](https://github.com/SETI/rms-pdslogger/blob/main/LICENSE).
