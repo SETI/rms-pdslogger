@@ -9,7 +9,6 @@ import io
 import os
 import pathlib
 import re
-import shutil
 import tempfile
 import unittest
 
@@ -167,7 +166,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             try:
-                x = 1/0
+                _ = 1/0
             except ZeroDivisionError as e:
                 L.exception(e, stacktrace=False)
 
@@ -179,13 +178,13 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             try:
-                x = 1/0
+                _ = 1/0
             except ZeroDivisionError as e:
                 L.exception(e, stacktrace=True)
 
         result = F.getvalue()
         self.assertTrue(result.endswith(', in test_exception\n'
-                                        '    x = 1/0\n        ~^~\n\n'))
+                                        '    _ = 1/0\n        ~^~\n\n'))
 
     def test_roots(self):
         L = P.EasyLogger()
@@ -254,7 +253,6 @@ class Test_PdsLogger(unittest.TestCase):
         self.assertTrue(parts[0].endswith('INFO: a/long/prefix/before/foo.bar'))
         self.assertTrue(parts[1].endswith('INFO: a/long/prefix/before/foo.bar'))
 
-
     def test_logged_level(self):
         L = P.EasyLogger()
         self.assertEqual(L._logged_level_name('FATAL'), 'FATAL')
@@ -302,7 +300,7 @@ class Test_PdsLogger(unittest.TestCase):
         self.assertEqual(len(result), 2)
 
     def test_levels(self):
-        L = P.EasyLogger(levels={'hidden':44, 'foo':20, 'bar':33}, level=21)
+        L = P.EasyLogger(levels={'hidden': 44, 'foo': 20, 'bar': 33}, level=21)
         F = io.StringIO()
         with redirect_stdout(F):
             L.hidden('HIDDEN')
@@ -311,7 +309,7 @@ class Test_PdsLogger(unittest.TestCase):
             L.log('BAR', 'BAR')
             L.log('bar', 'bar')
         result = F.getvalue()
-        result = ''.join(TIMETAG.split(result)) # eliminate time tags
+        result = ''.join(TIMETAG.split(result))  # eliminate time tags
         result = result[:-1].split('\n')
         self.assertEqual(result, [' | pds.easylog || HIDDEN | HIDDEN',
                                   ' | pds.easylog || BAR | BAR',
@@ -341,11 +339,11 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('Begin')
-            for t in range(1,4):
+            for t in range(1, 4):
                 L.open(f'Tier {t}')
                 L.debug(f'DEBUG inside Tier {t}')
             L.info(f'INFO inside Tier {t}')
-            for t in range(3,0,-1):
+            for t in range(3, 0, -1):
                 L.close()
                 L.debug(f'DEBUG after Tier {t}')
             L.info('End')
@@ -385,11 +383,11 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('Begin')
-            for t in range(1,4):
+            for t in range(1, 4):
                 L.open(f'Tier {t}')
                 L.debug(f'DEBUG inside Tier {t}')
             L.info(f'INFO inside Tier {t}')
-            for t in range(3,0,-1):
+            for t in range(3, 0, -1):
                 L.close()
                 L.debug(f'DEBUG after Tier {t}')
             L.info('End')
@@ -399,16 +397,16 @@ class Test_PdsLogger(unittest.TestCase):
 
     def test_limits(self):
         L = P.EasyLogger(timestamps=False, lognames=False, blanklines=False,
-                         indent=False, limits={'debug':4})
+                         indent=False, limits={'debug': 4})
         F = io.StringIO()
         with redirect_stdout(F):
             L.info('Begin')
-            for t in range(1,3):
+            for t in range(1, 3):
                 L.open(f'Tier {t}')
                 for k in range(10):
                     L.debug(f'DEBUG {k+1} inside Tier {t}')
             L.info(f'INFO inside Tier {t}')
-            for t in range(2,0,-1):
+            for t in range(2, 0, -1):
                 L.close()
                 for k in range(10):
                     L.debug(f'DEBUG {k+1} after Tier {t}')
@@ -442,7 +440,7 @@ class Test_PdsLogger(unittest.TestCase):
         L.set_limit('debug', 4)
         F = io.StringIO()
         with redirect_stdout(F):
-            L.open('Tier 1', limits={'debug':12})
+            L.open('Tier 1', limits={'debug': 12})
             for k in range(6):
                 L.debug(f'DEBUG {k+1} inside Tier 1')
             L.close()
@@ -488,6 +486,7 @@ class Test_PdsLogger(unittest.TestCase):
 
             handlers = [debug, info, warn, error]
             sizes = [0, 0, 0, 0]
+
             def got_bigger():
                 answers = []
                 for k, handler in enumerate(handlers):
@@ -558,5 +557,5 @@ class Test_PdsLogger(unittest.TestCase):
                 handler.close()
 
         finally:
-#             shutil.rmtree(dirpath)
+            # shutil.rmtree(dirpath)
             pass

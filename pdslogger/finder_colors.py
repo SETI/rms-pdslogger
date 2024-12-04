@@ -40,7 +40,7 @@ try:
 except ImportError:
     pass
 
-if sys.version_info >= (3,0):
+if sys.version_info >= (3, 0):
     BYTES32 = bytes(32)
 else:
     BYTES32 = chr(0)*32

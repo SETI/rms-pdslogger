@@ -366,13 +366,13 @@ class PdsLogger(logging.Logger):
 
     This class defines six additional logging level aliases:
 
-    * "normal" is used for any normal outcome.
-    * "ds_store" is to be used if a ".DS_Store" file is encountered.
-    * "dot_" is to be used if a "._*" file is encountered.
-    * "invisible" is to be used if any other invisible file or directory is encountered.
-    * "exception" is to be used when any exception is encountered.
-    * "header" is used for headers at the beginning of tests and for trailers at the ends
-      of tests.
+    * `"normal"` is used for any normal outcome.
+    * `"ds_store"` is to be used if a ".DS_Store" file is encountered.
+    * `"dot_"` is to be used if a "._*" file is encountered.
+    * `"invisible"` is to be used if any other invisible file or directory is encountered.
+    * `"exception"` is to be used when any exception is encountered.
+    * `"header"` is used for headers at the beginning of tests and for trailers at the
+      ends of tests.
 
     Additional aliases are definable by the user. These aliases are independent of the
     "levels" normally associated with logging in Python. For example, the default level of
@@ -935,8 +935,8 @@ class PdsLogger(logging.Logger):
 
         Returns:
             tuple: (number of fatal errors, number of errors, number of warnings, total
-                    number of messages). These counts include messages that were
-                    suppressed because a limit was reached.
+            number of messages). These counts include messages that were
+            suppressed because a limit was reached.
         """
 
         fatal = 0
@@ -963,14 +963,16 @@ class PdsLogger(logging.Logger):
         The closure is logged, plus a summary of the time elapsed and levels identified
         while this tier was open.
 
-        Returns:
-            tuple: (number of fatal errors, number of errors, number of warnings, total
-                number of messages). These counts include messages that were suppressed
-                because a limit was reached.
+        Parameters:
             force (bool, int, or str, optional):
                 True to force the logging of all summary messages. Alternatively use a
                 level or level name to force the summary messages only about logged
                 messages at this level and higher.
+
+        Returns:
+            tuple: (number of fatal errors, number of errors, number of warnings, total
+            number of messages). These counts include messages that were suppressed
+            because a limit was reached.
         """
 
         # Interpret the `force` input
@@ -1072,7 +1074,7 @@ class PdsLogger(logging.Logger):
 
         Returns:
             int: The number of messages logged, including any suppressed if a limit was
-                reached.
+            reached.
         """
 
         name = _repair_level_name(name)
@@ -1141,7 +1143,6 @@ class PdsLogger(logging.Logger):
 
         # Otherwise...
         else:
-            suppressed = self._suppressed_by_name[-1][level_name_for_count]
             self._suppressed_by_name[-1][level_name_for_count] += 1
 
             # If this is the first suppressed message due to the limit, notify
@@ -1253,7 +1254,7 @@ class PdsLogger(logging.Logger):
         self.log('ds_store', message, filepath, force=force)
 
     def dot_underscore(self, message, filepath='', force=False):
-        """Log a message with level == "dot_", indicating that a file with a name
+        """Log a message with level == `"dot_"`, indicating that a file with a name
         beginning with "._" was found.
 
         These files are sometimes created during file transfers from a Mac.
@@ -1262,7 +1263,7 @@ class PdsLogger(logging.Logger):
             message (str): Text of the message.
             filepath (str or pathlib.Path, optional): File path to include in the message.
             force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "dot_".
+                logging level is above the level of `"dot_"`.
         """
 
         self.log('dot_', message, filepath, force=force)
