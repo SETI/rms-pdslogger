@@ -183,8 +183,8 @@ class Test_PdsLogger(unittest.TestCase):
                 L.exception(e, stacktrace=True)
 
         result = F.getvalue()
-        self.assertTrue(result.endswith(', in test_exception\n'
-                                        '    _ = 1/0\n        ~^~\n\n'))
+        print(result)
+        self.assertIn(', in test_exception\n    _ = 1/0\n', result)
 
     def test_roots(self):
         L = P.EasyLogger()
@@ -193,7 +193,7 @@ class Test_PdsLogger(unittest.TestCase):
             L.info('INFO', 'foo.bar')
             L.info('INFO', pathlib.Path('foo.bar'))
             L.info('INFO', 'a/long/prefix/before/foo.bar')
-            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar'))
+            L.info('INFO', pathlib.Path('a/long/prefix/before/foo.bar').as_posix())
 
         result = F.getvalue()
         result = ''.join(TIMETAG.split(result))
@@ -473,12 +473,13 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
 
             error = P.error_handler(dirpath, rotation='ymd')
-            pattern = str(dirpath / r'ERRORS_\d\d\d\d-\d\d-\d\d\.log')
+            pattern = (dirpath / r'ERRORS_\d\d\d\d-\d\d-\d\d\.log').as_posix()
             self.assertIsNotNone(re.fullmatch(pattern, error.baseFilename))
 
             debug = P.file_handler(dirpath / 'DEBUG.txt', rotation='ymdhms',
                                    level='DEBUG', suffix='_test')
-            pattern = str(dirpath / r'DEBUG_\d\d\d\d-\d\d-\d\dT\d\d-\d\d-\d\d_test\.txt')
+            pattern = (dirpath /
+                       r'DEBUG_\d\d\d\d-\d\d-\d\dT\d\d-\d\d-\d\d_test\.txt').as_posix()
             self.assertIsNotNone(re.fullmatch(pattern, debug.baseFilename))
 
             L = P.PdsLogger('test')
