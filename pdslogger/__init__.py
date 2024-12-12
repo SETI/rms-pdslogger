@@ -1,5 +1,5 @@
 ##########################################################################################
-# pdslogger.py
+# pdslogger/__init__.py
 ##########################################################################################
 """PDS RMS Node enhancements to the Python logger module."""
 
@@ -86,7 +86,8 @@ class LoggerError(Exception):
     In addition, no traceback will be included in the log.
     """
 
-    def __init__(self, message, filepath='', *, force=False, level='error'):
+    def __init__(self, message, filepath='', *, force=False, level='error',
+                 stacktrace=False):
         """Constructor.
 
         Parameters:
@@ -101,24 +102,38 @@ class LoggerError(Exception):
                 the level of "warn".
             level (int or str, optional):
                 The level or level name for a record to enter the log.
-            error (Exception, optional):
-                If specified, the class and message string of this error are included in
-                the new error message.
+            stacktrace (bool, optional): True to include a stacktrace in the log.
         """
 
+        if isinstance(message, LoggerError):
+            self.__dict__ = message.__dict__
+            return
+
         if isinstance(message, Exception):
-            self.message = type(message).__name__ + '(' + str(message) + ')'
+            self.message = str(message)
+            self.type_name = type(message).__name__
         else:
             self.message = str(message)
+            self.type_name = ''
 
         self.filepath = filepath
         self.force = force
+        self.stacktrace = stacktrace
+
+        if isinstance(level, str):
+            level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
         self.level = level
 
     def __str__(self):
+        if self.type_name:
+            message = self.type_name + '(' + self.message + ')'
+        else:
+            message = self.message
+
         if self.filepath:
-            return self.message + ': ' + str(self.filepath)
-        return self.message
+            return message + ': ' + str(self.filepath)
+
+        return message
 
 ##########################################################################################
 # Handlers
@@ -126,6 +141,8 @@ class LoggerError(Exception):
 
 STDOUT_HANDLER = logging.StreamHandler(sys.stdout)
 STDOUT_HANDLER.setLevel(HIDDEN + 1)
+NULL_HANDLER = logging.NullHandler()
+
 
 def stream_handler(level=HIDDEN+1, stream=sys.stdout):
     """Stream handler for a PdsLogger, e.g., for directing messages to the terminal.
@@ -877,6 +894,9 @@ class PdsLogger(logging.Logger):
                 show all messages.
             handler (Handler or list[Handler], optional):
                 Optional handler(s) to use only until this part of the logger is closed.
+            force (bool, optional):
+                True to force the logging of the "open" messages, even if the current
+                logging level is above that specified by `level`.
 
         Returns:
             context manager:
@@ -888,7 +908,10 @@ class PdsLogger(logging.Logger):
         if filepath:
             title += ': ' + self._logged_filepath(filepath)
 
-        new_level = level or self._min_levels[-1]
+        if level is None:
+            new_level = self._min_levels[-1]
+        else:
+            new_level = self._level_by_name[_repair_level_name(level)]
 
         # Write header message at current tier
         header_level = self._level_by_name['header']
@@ -935,8 +958,8 @@ class PdsLogger(logging.Logger):
 
         Returns:
             tuple: (number of fatal errors, number of errors, number of warnings, total
-            number of messages). These counts include messages that were
-            suppressed because a limit was reached.
+            number of messages). These counts include messages that were suppressed
+            because a limit was reached.
         """
 
         fatal = 0
@@ -1293,7 +1316,7 @@ class PdsLogger(logging.Logger):
 
         self.log('hidden', message, filepath, force=force)
 
-    def exception(self, error, filepath='', *, stacktrace=True):
+    def exception(self, error, filepath='', *, stacktrace=True, more=''):
         """Log an Exception or KeyboardInterrupt.
 
         This method is only to be used inside an "except" clause.
@@ -1302,6 +1325,8 @@ class PdsLogger(logging.Logger):
             error (Exception): The error raised.
             filepath (str or pathlib.Path, optional): File path to include in the message.
             stacktrace (bool, optional): True to include the stacktrace of the exception.
+            more (str, optional): Additional information to write into the log following
+                the error message.
 
         Note:
             After a KeyboardInterrupt, this exception is re-raised.
@@ -1312,8 +1337,18 @@ class PdsLogger(logging.Logger):
             raise error
 
         if isinstance(error, LoggerError):
-            filepath = error.filepath or filepath
-            self.log(error.level, error.message, filepath, force=error.force)
+            if isinstance(error.level, str):
+                level = self._level_by_name[error.level]
+            else:
+                level = error.level
+
+            self.log(level, error.message, filepath, force=error.force)
+            if more:
+                self._logger_log(level, more)
+            if stacktrace and error.stacktrace:
+                (etype, value, tb) = sys.exc_info()
+                self._logger_log(level, ''.join(traceback.format_tb(tb)))
+
             return
 
         (etype, value, tb) = sys.exc_info()
@@ -1322,12 +1357,26 @@ class PdsLogger(logging.Logger):
 
         self.log('exception', '**** ' + etype.__name__ + ' ' + str(value),
                  filepath, force=True)
-
+        level = self._level_by_name['exception']
+        if more:
+            self._logger_log(level, more)
         if stacktrace:
-            self._logger_log(self._level_by_name['exception'],
-                             ''.join(traceback.format_tb(tb)))
+            self._logger_log(level, ''.join(traceback.format_tb(tb)))
 
-    def blankline(self, level):
+    def blankline(self, level=INFO, force=False):
+        """Write a blank line into the log.
+
+        Parameters:
+            level (int or str): Logging level or level name.
+            force (bool, optional): True to force the message to be logged even if the
+                logging level is above the specified level.
+        """
+
+        if force:
+            level = FATAL
+        elif isinstance(level, str):
+            level = self._level_by_name[_repair_level_name(level)]
+
         self._logger_log(level, '')
 
     def _logger_log(self, level, message):

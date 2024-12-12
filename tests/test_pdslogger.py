@@ -9,6 +9,7 @@ import io
 import os
 import pathlib
 import re
+import shutil
 import tempfile
 import unittest
 
@@ -183,7 +184,7 @@ class Test_PdsLogger(unittest.TestCase):
                 L.exception(e, stacktrace=True)
 
         result = F.getvalue()
-        print(result)
+        # print(result)
         self.assertIn(', in test_exception\n    _ = 1/0\n', result)
 
     def test_roots(self):
@@ -560,5 +561,5 @@ class Test_PdsLogger(unittest.TestCase):
                 handler.close()
 
         finally:
-            # shutil.rmtree(dirpath)
+            shutil.rmtree(dirpath)
             pass
