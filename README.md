@@ -120,6 +120,13 @@ In the Macintosh Finder, log files are color-coded by the most severe message en
 within the file: green for "info", yellow for warnings, red for errors, and violet for
 fatal or critical errors.
 
+For extremely simple logging needs, four subclasses of `PdsLogger` are provided.
+`EasyLogger` prints all messages above a specified level of severity to the
+terminal. `ErrorLogger` only prints error messages. `QuietLogger` only
+prints exceptions and other "fatal" messages. `NullLogger` suppresses all messages,
+including logged exceptions. These four subclasses have the common trait that they cannot
+be assigned handlers.
+
 Details of each function and class are available in the [module
 documentation](https://rms-pdslogger.readthedocs.io/en/latest/module.html).
 

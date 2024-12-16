@@ -129,7 +129,7 @@ class Test_PdsLogger(unittest.TestCase):
         self.assertRaises(ValueError, P.PdsLogger, 'a.b.c.d', default_prefix='')
         self.assertRaises(ValueError, P.PdsLogger, 'c.d', default_prefix='a.b')
 
-    def test_nulllogger(self):
+    def test_quietlogger(self):
         L = P.EasyLogger()
         F = io.StringIO()
         with redirect_stdout(F):
@@ -137,10 +137,10 @@ class Test_PdsLogger(unittest.TestCase):
                 L.log(level, level)
 
         result = F.getvalue()
-        result = ''.join(TIMETAG.split(result))
+        result = ''.join(TIMETAG.split(result)).replace('easylog', 'quietlog')
 
         # force=True
-        L1 = P.NullLogger()
+        L1 = P.QuietLogger()
         F = io.StringIO()
         with redirect_stdout(F):
             for level in LEVELS:
@@ -159,8 +159,8 @@ class Test_PdsLogger(unittest.TestCase):
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
-        self.assertEqual(result1, " | pds.easylog || FATAL | CRITICAL\n"
-                                  " | pds.easylog || FATAL | FATAL\n")
+        self.assertEqual(result1, " | pds.quietlog || FATAL | CRITICAL\n"
+                                  " | pds.quietlog || FATAL | FATAL\n")
 
     def test_exception(self):
         L = P.EasyLogger()
@@ -492,6 +492,7 @@ class Test_PdsLogger(unittest.TestCase):
             sizes = [0, 0, 0, 0]
 
             def got_bigger():
+                """1 where the filehandler has new content; 0 otherwise."""
                 answers = []
                 for k, handler in enumerate(handlers):
                     new_size = os.path.getsize(handler.baseFilename)

@@ -83,6 +83,13 @@ to it. As a result, if you really wish not to see any messages, you must assign 
 In the Macintosh Finder, log files are color-coded by the most severe message encountered
 within the file: green for "info", yellow for warnings, red for errors, and violet for
 fatal or critical errors.
+
+For extremely simple logging needs, four subclasses of :class:`PdsLogger` are provided.
+:class:`EasyLogger` prints all messages above a specified level of severity to the
+terminal. :class:`ErrorLogger` only prints error messages. :class:`QuietLogger` only
+prints exceptions and other "fatal" messages. :class:`NullLogger` suppresses all messages,
+including logged exceptions. These four subclasses have the common trait that they cannot
+be assigned handlers.
 """
 
 import datetime
@@ -160,6 +167,10 @@ _DEFAULT_LIMITS_BY_NAME = {     # we're treating all as unlimited by default now
 
 # Cache of names vs. PdsLoggers
 _LOOKUP = {}
+
+# Mapping from log file absolute path to tuple (fatals, errors, warns)
+_LOG_FILE_SUMMARIES = {}
+
 
 class LoggerError(Exception):
     """For an exception of this class, `logger.exception()` will write a message into the
@@ -541,24 +552,24 @@ class PdsLogger(logging.Logger):
         hierarchy.
         """
 
-        if not self._logger:                # if logger is EasyLogger or NullLogger
+        if not self._logger:                            # if EasyLogger or NullLogger
             if handlers and not hasattr(self, 'warned'):
                 raise ValueError(f'Class {type(self).__name__} does not accept handlers')
                 warnings.warn(f'Class {type(self).__name__} does not accept handlers')
                 self.warned = True
             return
 
-        # Get list of full paths to the log files across all tiers
-        log_files = [handler.baseFilename for handler in self._handlers
-                     if isinstance(handler, logging.FileHandler)]
-
         # Add each new handler if its filename is unique
         for handler in handlers:
             if handler in self._handlers:
                 continue
-            if (isinstance(handler, logging.FileHandler) and
-                    handler.baseFilename in log_files):
-                continue
+
+            if isinstance(handler, logging.FileHandler):
+                log_file = os.path.realpath(handler.baseFilename)
+                if log_file in _LOG_FILE_SUMMARIES:
+                    continue
+
+                _LOG_FILE_SUMMARIES[log_file] = self.summarize()
 
             self._local_handlers[-1].append(handler)
             self._handlers.append(handler)
@@ -567,7 +578,7 @@ class PdsLogger(logging.Logger):
     def remove_handler(self, *handlers):
         """Remove one or more handlers from this PdsLogger."""
 
-        if not self._logger:                # if logger is EasyLogger or NullLogger
+        if not self._logger:                            # if EasyLogger or NullLogger
             return
 
         for handler in handlers:
@@ -576,22 +587,40 @@ class PdsLogger(logging.Logger):
 
             self._logger.removeHandler(handler)         # no exception if not present
             self._handlers.remove(handler)
-            for handler_list in self._local_handlers:
-                if handler in handler_list:
-                    handler_list.remove(handler)
-                    break
+            for local_list in self._local_handlers:
+                if handler in local_list:
+                    local_list.remove(handler)
+
+            if isinstance(handler, logging.FileHandler):
+                log_file = os.path.realpath(handler.baseFilename)
+                if self._colors:
+                    new_summary = self.summarize()
+                    old_summary = _LOG_FILE_SUMMARIES[log_file]
+
+                    # If the xattr module has been imported on a Mac, set the color of the
+                    # log file to indicate outcome.
+                    try:                                # pragma: no cover
+                        if new_summary[0] - old_summary[0]:
+                            finder_colors.set_color(log_file, 'violet')
+                        elif new_summary[1] - old_summary[1]:
+                            finder_colors.set_color(log_file, 'red')
+                        elif new_summary[2] - old_summary[2]:
+                            finder_colors.set_color(log_file, 'yellow')
+                        else:
+                            finder_colors.set_color(log_file, 'green')
+                    except (AttributeError, NameError):
+                        pass
+
+                del _LOG_FILE_SUMMARIES[log_file]
 
     def remove_all_handlers(self):
         """Remove all the handlers from this PdsLogger."""
 
-        if not self._logger:                # if logger is EasyLogger or NullLogger
+        if not self._logger:                            # if EasyLogger or NullLogger
             return
 
-        for handler in self._handlers:
-            self._logger.removeHandler(handler)         # no exception if not present
-
-        self._handlers = []
-        self._local_handlers = [[] for _ in self._local_handlers]
+        for handler in list(self._handlers):
+            self.remove_handler(handler)                # no exception if not present
 
     def replace_handler(self, *handlers):
         """Replace the existing handlers with one or more new global handlers."""
@@ -848,25 +877,7 @@ class PdsLogger(logging.Logger):
 
         # Close the handlers at this level
         for handler in self._local_handlers[-1]:
-            if handler in self._handlers:
-                self._handlers.remove(handler)
-                self._logger.removeHandler(handler)
-
-            # If the xattr module has been imported on a Mac, set the colors of the log
-            # files to indicate outcome.
-            if isinstance(handler, logging.FileHandler) and self._colors:
-                try:                                                # pragma: no cover
-                    logfile = handler.baseFilename
-                    if fatal:
-                        finder_colors.set_color(logfile, 'violet')
-                    elif errors:
-                        finder_colors.set_color(logfile, 'red')
-                    elif warnings:
-                        finder_colors.set_color(logfile, 'yellow')
-                    else:
-                        finder_colors.set_color(logfile, 'green')
-                except (AttributeError, NameError):
-                    pass
+            self.remove_handler(handler)
 
         # Back up one level in the hierarchy
         self._titles             = self._titles[:-1]
@@ -1323,14 +1334,54 @@ class EasyLogger(PdsLogger):
         print(message)
 
 
-class NullLogger(EasyLogger):
+class ErrorLogger(EasyLogger):
+    """Simple subclass of PdsLogger that suppresses all messages except ERROR messages and
+    those that have been forced.
+    """
+
+    def __init__(self, logname='errorlog', **kwargs):
+        PdsLogger.__init__(self, logname, **kwargs)
+
+    def set_level(self, level):
+        """Set the level of messages for the current tier in the logger's hierarchy.
+
+        Ignored by ErrorLogger.
+        """
+        EasyLogger.set_level(self, ERROR)
+
+    def _logger_log(self, level, message):
+        if level >= ERROR:
+            print(message)
+
+
+class QuietLogger(EasyLogger):
     """Simple subclass of PdsLogger that suppresses all messages except FATAL messages and
     those that have been forced.
     """
 
+    def __init__(self, logname='quietlog', **kwargs):
+        PdsLogger.__init__(self, logname, **kwargs)
+
+    def set_level(self, level):
+        """Set the level of messages for the current tier in the logger's hierarchy.
+
+        Ignored by QuietLogger.
+        """
+        EasyLogger.set_level(self, FATAL)
+
     def _logger_log(self, level, message):
         if level >= FATAL:
             print(message)
+
+
+class NullLogger(EasyLogger):
+    """Simple subclass of PdsLogger that suppresses all messages."""
+
+    def __init__(self, logname='nulllog', **kwargs):
+        PdsLogger.__init__(self, logname, **kwargs)
+
+    def _logger_log(self, level, message):
+        return
 
 ##########################################################################################
 # Handlers
