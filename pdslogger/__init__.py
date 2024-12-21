@@ -63,11 +63,15 @@ exception message into the log, including the stacktrace. If you desire greater 
 over how an exception is recorded in the log, you can use the :class:`LoggerException`
 class or define your own subclass.
 
-Simple tools are also provided to create handlers to assign to a :class:`PdsLogger`
-using :meth:`~PdsLogger.add_handler` and related methods:
+Simple tools are also provided to create handlers to assign to a :class:`PdsLogger` using
+:meth:`~PdsLogger.add_handler` and related methods:
 
-* :meth:`file_handler` is a function that provides a rich set of options for managing
-  log files, including version numbering and daily rotations.
+* :meth:`file_handler` is a function that provides a rich set of options for constructing
+  ``logging.FileHandler`` objects, which allow logs to be written to a file. The options
+  include version numbering, appending a date or time to the file name, and daily
+  rotations. :meth:`file_handler` also supports the RMS Node's ``filecache`` module, which
+  allows log files to be seamlessly saved into cloud storage; simply pass in a URI or
+  ``FCPath`` object instead of a local file path.
 * :meth:`info_handler`, :meth:`~PdsLogger.warnings_handler`, and
   :meth:`~PdsLogger.error_handler` are simpler versions of the above, in which the level
   of message logging is implied.
@@ -92,17 +96,20 @@ including logged exceptions. These four subclasses have the common trait that th
 be assigned handlers.
 """
 
+import atexit
 import datetime
 import logging
 import logging.handlers
 import os
-import pathlib
 import re
 import sys
 import traceback
 import warnings
 
 from collections import defaultdict
+from pathlib import Path
+
+from filecache import FCPath
 
 try:
     import pdslogger._finder_colors as finder_colors
@@ -168,65 +175,7 @@ _DEFAULT_LIMITS_BY_NAME = {     # we're treating all as unlimited by default now
 # Cache of names vs. PdsLoggers
 _LOOKUP = {}
 
-# Mapping from log file absolute path to tuple (fatals, errors, warns)
-_LOG_FILE_SUMMARIES = {}
-
-
-class LoggerError(Exception):
-    """For an exception of this class, `logger.exception()` will write a message into the
-    log with the user-specified level.
-
-    Unless requested, no stacktrace will be included in the log.
-    """
-
-    def __init__(self, message, filepath='', *, force=False, level='error',
-                 stacktrace=False):
-        """Constructor.
-
-        Parameters:
-            message (str or Exception):
-                Text of the message as a string. If an Exception object is provided, the
-                message is derived from this error.
-            filepath (str or pathlib.Path, optional):
-                File path to include in the message. If not specified, the `filepath`
-                appearing in the call to `exception()` will be used.
-            force (bool, optional):
-                True to force the message to be logged even if the logging level is above
-                the level of "warn".
-            level (int or str, optional):
-                The level or level name for a record to enter the log.
-            stacktrace (bool, optional): True to include a stacktrace in the log.
-        """
-
-        if isinstance(message, LoggerError):
-            self.__dict__ = message.__dict__
-            return
-
-        if isinstance(message, Exception):
-            self.message = str(message)
-            self.type_name = type(message).__name__
-        else:
-            self.message = str(message)
-            self.type_name = ''
-
-        self.filepath = filepath
-        self.force = force
-        self.stacktrace = stacktrace
-
-        if isinstance(level, str):
-            level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
-        self.level = level
-
-    def __str__(self):
-        if self.type_name:
-            message = self.type_name + '(' + self.message + ')'
-        else:
-            message = self.message
-
-        if self.filepath:
-            return message + ': ' + str(self.filepath)
-
-        return message
+_ATEXIT = False     # changed to True during `atexit` cleanup
 
 ##########################################################################################
 # PdsLogger class
@@ -257,10 +206,10 @@ class PdsLogger(logging.Logger):
             limits (dict, optional):
                 A dictionary indicating the upper limit on the number of messages to log
                 as a function of level name.
-            roots (list[str or pathlib.Path], optional):
+            roots (str, Path, FCPath, or list[str, Path, or FCPath], optional):
                 Character strings to suppress if they appear at the beginning of file
                 paths. Used to reduce the length of log entries when, for example, every
-                file path is on the same physical volume.
+                file path is in a single subdirectory tree on the volume.
             level (int or str, optional):
                 The minimum level or level name for a record to enter the log.
             timestamps (bool, optional):
@@ -301,8 +250,7 @@ class PdsLogger(logging.Logger):
         self._merge_level_names(levels)
 
         # Define roots
-        if isinstance(roots, str):
-            roots = [roots]
+        roots = [roots] if isinstance(roots, str) else roots
         self._roots = []
         self.add_root(*roots)
 
@@ -336,7 +284,7 @@ class PdsLogger(logging.Logger):
         self._colors = bool(colors)
         self._maxdepth = maxdepth
 
-        self._handlers = []         # complete list of handlers across all tiers
+        self._handlers = []                 # complete list of handlers across all tiers
         self._suppressions_logged = set()   # level names having had a suppression message
 
         # Support for multiple tiers in hierarchy
@@ -353,6 +301,16 @@ class PdsLogger(logging.Logger):
         self._limits_by_name[-1].update(_DEFAULT_LIMITS_BY_NAME)
         for level_name, level_num in limits.items():
             self.set_limit(level_name, level_num)
+
+        # Mapping from log file absolute path to tuple (fatals, errors, warns)
+        self._log_file_summaries = {}
+
+        # Mappings from local file path to FCPath and FileHandler, if any
+        self._fcpath_by_local_abspath = {}
+        self._handler_by_local_abspath = {}
+
+        # Remove/close all handlers at program exit no matter what
+        atexit.register(self._remove_all_handlers_at_exit)
 
     @staticmethod
     def get_logger(logname, *, default_prefix='pds.', levels={}, limits={}, roots=[],
@@ -373,10 +331,10 @@ class PdsLogger(logging.Logger):
             limits (dict, optional):
                 A dictionary indicating the upper limit on the number of messages to log
                 as a function of level name.
-            roots (list[str or pathlib.Path], optional):
+            roots (str, Path, FCPath, or list[str, Path, or FCPath], optional):
                 Character strings to suppress if they appear at the beginning of file
                 paths. Used to reduce the length of log entries when, for example, every
-                file path is on the same physical volume.
+                file path is in a single subdirectory tree on the volume.
             level (int or str, optional):
                 The minimum level or level name for a record to enter the log.
             timestamps (bool, optional):
@@ -412,8 +370,7 @@ class PdsLogger(logging.Logger):
                 logger.set_limit(name, value)
 
             roots = [roots] if isinstance(roots, str) else roots
-            for name in roots:
-                logger.add_root(name, value)
+            logger.add_root(*roots)
 
             return logger
 
@@ -457,7 +414,7 @@ class PdsLogger(logging.Logger):
 
         Parameters;
             level (int or str, optional):
-                The minimum level of level name for a record to enter the log.
+                The minimum level or level name for a record to enter the log.
         """
 
         if isinstance(level, str):
@@ -522,7 +479,10 @@ class PdsLogger(logging.Logger):
     def set_limit(self, name, limit):
         """Set the upper limit on the number of messages with this level name.
 
-        A limit of -1 implies no limit.
+        Parameters:
+            name (int or str): A logging level or level name.
+            limit (int): The maximum number of messages to be logged at this level. A
+                limit of -1 implies no limit.
         """
 
         self._limits_by_name[-1][_repair_level_name(name)] = limit
@@ -530,8 +490,11 @@ class PdsLogger(logging.Logger):
     def add_root(self, *roots):
         """Add one or more paths to the set of root paths.
 
-        When a root path appears at the beginning of a logged file path, the leading
-        portion is suppressed.
+        When a root path appears at the beginning of a logged file path, only the portion
+        following the root is shown.
+
+        Parameters:
+            *roots (str, Path, or FCPath): One or more root paths to suppress.
         """
 
         for root_ in roots:
@@ -550,80 +513,167 @@ class PdsLogger(logging.Logger):
     def add_handler(self, *handlers):
         """Add one or more handlers to this PdsLogger at the current location in the
         hierarchy.
+
+        If a handler is already in use, or if it refers to a log file that is already in
+        use, the input is ignored silently.
+
+        Parameters:
+            *handlers (logging.Handler, str, path, or FCPath):
+                One or more handlers. If a file path is provided, it is used by
+                :meth:`file_handler` to construct a new FileHandler.
         """
 
-        if not self._logger:                            # if EasyLogger or NullLogger
+        # EasyLogger and its subclasses do not accept handlers; warn
+        if not self._logger:
             if handlers and not hasattr(self, 'warned'):
-                raise ValueError(f'Class {type(self).__name__} does not accept handlers')
                 warnings.warn(f'Class {type(self).__name__} does not accept handlers')
                 self.warned = True
             return
 
-        # Add each new handler if its filename is unique
+        # Add each new handler if its absolute path is unique
         for handler in handlers:
-            if handler in self._handlers:
+            if handler in self._handlers:                   # no duplicate handlers
                 continue
 
-            if isinstance(handler, logging.FileHandler):
-                log_file = os.path.realpath(handler.baseFilename)
-                if log_file in _LOG_FILE_SUMMARIES:
-                    continue
+            # Convert a file path to a handler
+            if isinstance(handler, (str, Path, FCPath)):
+                handler = file_handler(handler)
 
-                _LOG_FILE_SUMMARIES[log_file] = self.summarize()
+            # Save FileHandler in the global dictionary by absolute path string
+            if isinstance(handler, logging.FileHandler):
+
+                # A FileHandler constructed using file_handler() will have an FCPath
+                fcpath = handler.fcpath if hasattr(handler, 'fcpath') else None
+                abspath = str(Path(handler.baseFilename).expanduser().resolve())
+                if abspath in self._handler_by_local_abspath:
+                    continue                                # log file already in use
+                self._handler_by_local_abspath[abspath] = handler
+                self._log_file_summaries[abspath] = self.summarize()
+
+                # Save a remote FCPath based on retrieved name so we can close it when the
+                # handler is removed
+                if fcpath and not fcpath.is_local:
+                    self._fcpath_by_local_abspath[abspath] = fcpath
 
             self._local_handlers[-1].append(handler)
             self._handlers.append(handler)
             self._logger.addHandler(handler)
 
     def remove_handler(self, *handlers):
-        """Remove one or more handlers from this PdsLogger."""
+        """Remove one or more handlers from this PdsLogger.
 
-        if not self._logger:                            # if EasyLogger or NullLogger
+        Parameters:
+            *handlers (logging.Handler, str, path, FCPath):
+                One or more handlers. If a file path is provided, the FileHandler using
+                that log path is removed.
+        """
+
+        if not self._logger:                                # if EasyLogger or NullLogger
             return
 
         for handler in handlers:
-            if handler not in self._handlers:
-                continue
 
-            self._logger.removeHandler(handler)         # no exception if not present
+            # Identify handler and path if any
+            if isinstance(handler, (str, Path, FCPath)):
+                path = handler
+                handler = None
+            elif isinstance(handler, logging.FileHandler):
+                path = handler.baseFilename
+            else:
+                path = ''
+
+            if handler and handler not in self._handlers:
+                continue                                    # handler not in use
+
+            # Identify an FCPath and abspath if any
+            if hasattr(handler, 'fcpath'):
+                fcpath = handler.fcpath
+                abspath = str(fcpath.get_local_path().expanduser().resolve())
+            elif isinstance(path, FCPath):
+                fcpath = path
+                abspath = str(fcpath.get_local_path().expanduser().resolve())
+            elif path:
+                abspath = str(Path(path).expanduser().resolve())
+                fcpath = self._fcpath_by_local_abspath.get(abspath, None)
+            else:
+                abspath = ''
+                fcpath = None
+
+            # Check an abspath against the list of handlers
+            if not handler:
+                handler = self._handler_by_local_abspath.get(abspath, None)
+            if not handler:
+                continue                                    # abspath not in use
+
+            # Remove the handler
+            self._logger.removeHandler(handler)
             self._handlers.remove(handler)
             for local_list in self._local_handlers:
                 if handler in local_list:
                     local_list.remove(handler)
 
-            if isinstance(handler, logging.FileHandler):
-                log_file = os.path.realpath(handler.baseFilename)
-                if self._colors:
-                    new_summary = self.summarize()
-                    old_summary = _LOG_FILE_SUMMARIES[log_file]
+            # Manage the file
+            if abspath:
 
-                    # If the xattr module has been imported on a Mac, set the color of the
-                    # log file to indicate outcome.
-                    try:                                # pragma: no cover
-                        if new_summary[0] - old_summary[0]:
-                            finder_colors.set_color(log_file, 'violet')
-                        elif new_summary[1] - old_summary[1]:
-                            finder_colors.set_color(log_file, 'red')
-                        elif new_summary[2] - old_summary[2]:
-                            finder_colors.set_color(log_file, 'yellow')
-                        else:
-                            finder_colors.set_color(log_file, 'green')
-                    except (AttributeError, NameError):
-                        pass
+                # During `atexit` call, the file may already have been cleaned up
+                if not (_ATEXIT and not os.path.exists(abspath)):
 
-                del _LOG_FILE_SUMMARIES[log_file]
+                    # If it's an FCPath, issue an explicit upload
+                    if fcpath:
+                        fcpath.upload()
+
+                    if self._colors:
+                        new_summary = self.summarize()
+                        old_summary = self._log_file_summaries[abspath]
+
+                        # If the xattr module has been imported on a Mac, set the color of
+                        # the log file to indicate outcome.
+                        try:                                # pragma: no cover
+                            if new_summary[0] - old_summary[0]:
+                                finder_colors.set_color(abspath, 'violet')
+                            elif new_summary[1] - old_summary[1]:
+                                finder_colors.set_color(abspath, 'red')
+                            elif new_summary[2] - old_summary[2]:
+                                finder_colors.set_color(abspath, 'yellow')
+                            else:
+                                finder_colors.set_color(abspath, 'green')
+                        except (AttributeError, NameError):
+                            pass
+
+                # Remove the abspath from the dictionaries
+                del self._handler_by_local_abspath[abspath]
+                del self._log_file_summaries[abspath]
+                if abspath in self._fcpath_by_local_abspath:
+                    del self._fcpath_by_local_abspath[abspath]
 
     def remove_all_handlers(self):
         """Remove all the handlers from this PdsLogger."""
 
-        if not self._logger:                            # if EasyLogger or NullLogger
+        if not self._logger:                    # if EasyLogger or NullLogger
             return
 
-        for handler in list(self._handlers):
-            self.remove_handler(handler)                # no exception if not present
+        for handler in list(self._handlers):    # use a copy of the list; it's changing
+            self.remove_handler(handler)
+
+    def _remove_all_handlers_at_exit(self):
+        """Remove all the handlers from this PdsLogger at program exit.
+
+        This ensures that if a program aborts, a remote log is still uploaded to the
+        cloud.
+        """
+
+        global _ATEXIT
+        _ATEXIT = True
+        self.remove_all_handlers()
 
     def replace_handler(self, *handlers):
-        """Replace the existing handlers with one or more new global handlers."""
+        """Replace the existing handlers with one or more new global handlers.
+
+        Parameters:
+            *handlers (str, path, FCPath, or logging.Handler):
+                One or more handlers. If a file path is provided, it is used in a new
+                FileHandler.
+        """
 
         self.remove_all_handlers()
         self.add_handler(handlers)
@@ -876,7 +926,7 @@ class PdsLogger(logging.Logger):
         (fatal, errors, warnings, total) = self.summarize()
 
         # Close the handlers at this level
-        for handler in self._local_handlers[-1]:
+        for handler in list(self._local_handlers[-1]):  # work from a copy of the list
             self.remove_handler(handler)
 
         # Back up one level in the hierarchy
@@ -925,7 +975,7 @@ class PdsLogger(logging.Logger):
                 Logging level or level name.
             message (str):
                 Message to log.
-            filepath (str or pathlib.Path, optional):
+            filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
             force (bool, optional):
                 True to force message reporting even if the relevant limit has been
@@ -996,7 +1046,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "debug".
         """
@@ -1008,7 +1059,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "info".
         """
@@ -1020,7 +1072,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "warn".
         """
@@ -1032,7 +1085,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "critical".
         """
@@ -1044,7 +1098,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "critical".
         """
@@ -1056,7 +1111,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "fatal".
         """
@@ -1068,7 +1124,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "normal".
         """
@@ -1083,7 +1140,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "ds_store".
         """
@@ -1098,7 +1156,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of `"dot_"`.
         """
@@ -1123,7 +1182,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             force (bool, optional): True to force the message to be logged even if the
                 logging level is above the level of "hidden".
         """
@@ -1137,7 +1197,8 @@ class PdsLogger(logging.Logger):
 
         Parameters:
             error (Exception): The error raised.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
             stacktrace (bool, optional): True to include the stacktrace of the exception.
             more (str, optional): Additional information to write into the log following
                 the error message.
@@ -1222,7 +1283,8 @@ class PdsLogger(logging.Logger):
         Parameters:
             level (int, str): Logging level or level name to appear in the log record.
             message (str): Message text.
-            filepath (str or pathlib.Path, optional): File path to append to the message.
+            filepath (str, Path, or FCPath, optional): File path to include in the
+                message.
 
         Returns:
             str: The full text of the log message.
@@ -1260,13 +1322,13 @@ class PdsLogger(logging.Logger):
         """A file path to log, with any of the leading root paths stripped.
 
         Parameters:
-            filepath (str or pathlib.Path, optional): File path to append to the message.
+            filepath (str, Path, or FCPath, optional): File path to append to the message.
 
         Returns:
             str: Path string to include in the logged message.
         """
 
-        if isinstance(filepath, pathlib.Path):
+        if isinstance(filepath, (Path, FCPath)):
             filepath = str(filepath)
             if filepath == '.':     # the result of Path('')
                 filepath = ''
@@ -1274,7 +1336,7 @@ class PdsLogger(logging.Logger):
         if not filepath:
             return ''
 
-        abspath = str(pathlib.Path(filepath).resolve())
+        abspath = str(Path(filepath).resolve())
         for root_ in self._roots:
             if filepath.startswith(root_):
                 return filepath[len(root_):]
@@ -1384,6 +1446,66 @@ class NullLogger(EasyLogger):
         return
 
 ##########################################################################################
+# LoggerError
+##########################################################################################
+
+class LoggerError(Exception):
+    """For an exception of this class, `logger.exception()` will write a message into the
+    log with the user-specified level.
+
+    Unless requested, no stacktrace will be included in the log.
+    """
+
+    def __init__(self, message, filepath='', *, force=False, level='error',
+                 stacktrace=False):
+        """Constructor.
+
+        Parameters:
+            message (str or Exception):
+                Text of the message as a string. If an Exception object is provided, the
+                message is derived from this error.
+            filepath (str, Path, or FCPath, optional):
+                File path to include in the message. If not specified, the `filepath`
+                appearing in the call to `exception()` will be used.
+            force (bool, optional):
+                True to force the message to be logged even if the logging level is above
+                the level of "warn".
+            level (int or str, optional):
+                The level or level name for a record to enter the log.
+            stacktrace (bool, optional): True to include a stacktrace in the log.
+        """
+
+        if isinstance(message, LoggerError):
+            self.__dict__ = message.__dict__
+            return
+
+        if isinstance(message, Exception):
+            self.message = str(message)
+            self.type_name = type(message).__name__
+        else:
+            self.message = str(message)
+            self.type_name = ''
+
+        self.filepath = filepath
+        self.force = force
+        self.stacktrace = stacktrace
+
+        if isinstance(level, str):
+            level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
+        self.level = level
+
+    def __str__(self):
+        if self.type_name:
+            message = self.type_name + '(' + self.message + ')'
+        else:
+            message = self.message
+
+        if self.filepath:
+            return message + ': ' + str(self.filepath)
+
+        return message
+
+##########################################################################################
 # Handlers
 ##########################################################################################
 
@@ -1392,30 +1514,11 @@ STDOUT_HANDLER.setLevel(HIDDEN + 1)
 NULL_HANDLER = logging.NullHandler()
 
 
-def stream_handler(level=HIDDEN+1, stream=sys.stdout):
-    """Stream handler for a PdsLogger, e.g., for directing messages to the terminal.
-
-    Parameters:
-        level (int or str, optional):
-            The minimum logging level at which to log messages; either an int or one of
-            "fatal", "error", "warn", "warning", "info", "debug", or "hidden".
-        stream (stream, optional):
-            An output stream, defaulting to the terminal via sys.stdout.
-    """
-
-    if isinstance(level, str):
-        level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
-
-    handler = logging.StreamHandler(stream)
-    handler.setLevel(level)
-    return handler
-
-
 def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
     """File handler for a PdsLogger.
 
     Parameters:
-        logath (str or pathlib.Path):
+        logath (str, Path, or FCPath):
             The path to the log file.
         level (int or str):
             The minimum logging level at which to log messages; either an int or one of
@@ -1453,17 +1556,19 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
     if isinstance(level, str):
         level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
 
-    # Create the parent directory if needed
-    logpath = pathlib.Path(logpath)
-    logpath.parent.mkdir(parents=True, exist_ok=True)
-
+    # Define the FCPath
+    logpath = FCPath(logpath)
     if not logpath.suffix:
         logpath = logpath.with_suffix('.log')
 
     # Rename the previous log if rotation is "number"
     if rotation == 'number':
 
-        if logpath.exists():
+        try:
+            local_logpath = logpath.retrieve()
+        except FileNotFoundError:
+            pass
+        else:
             # Rename an existing log to one greater than the maximum numbered version
             max_version = 0
             regex = re.compile(logpath.stem + r'_v([0-9]+)' + logpath.suffix)
@@ -1472,13 +1577,19 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
                 if match:
                     max_version = max(int(match.group(1)), max_version)
 
+            # Rename the existing log to one with a version number
             basename = logpath.stem + '_v%03d' % (max_version+1) + logpath.suffix
-            logpath.rename(logpath.parent / basename)
+            versioned_logpath = logpath.parent / basename
+            versioned_local_logpath = local_logpath.parent / basename
+            os.rename(local_logpath, versioned_local_logpath)
+            versioned_logpath.upload()
+
+            # Delete the existing file
+            logpath.unlink()
 
     # Delete the previous log if rotation is 'replace'
     elif rotation == 'replace':
-        if logpath.exists():
-            logpath.unlink()
+        logpath.unlink()
 
     # Construct a dated log file name
     elif rotation == 'ymd':
@@ -1493,9 +1604,19 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
         basename = logpath.stem + '_' + suffix.lstrip('_') + logpath.suffix
         logpath = logpath.parent / basename
 
-    # Create handler
+    # Get the local logpath
+    try:
+        local_logpath = logpath.retrieve()
+    except FileNotFoundError:
+        local_logpath = logpath.get_local_path()
+
+    # Create the handler
     if rotation == 'midnight':
-        handler = logging.handlers.TimedRotatingFileHandler(logpath, when='midnight')
+        if not logpath.is_local:
+            raise ValueError('midnight rotation is not supported for remote files')
+
+        handler = logging.handlers.TimedRotatingFileHandler(local_logpath,
+                                                            when='midnight')
 
         def _rotator(source, dest):
             # This hack is required because the Python logging module is not
@@ -1512,7 +1633,8 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
                 pass
         handler.rotator = _rotator
     else:
-        handler = logging.FileHandler(logpath, mode='a')
+        handler = logging.FileHandler(local_logpath, mode='a')
+        handler.fcpath = logpath    # save the FCPath as an extra attribute
 
     handler.setLevel(level)
     return handler
@@ -1522,7 +1644,7 @@ def info_handler(parent, name='INFO.log', *, rotation='none'):
     """Quick creation of an "info"-level file handler.
 
     Parameters:
-        parent (str or pathlib.Path):
+        parent (str, Path, or FCPath):
             Path to the parent directory.
         name (str, optional):
             Basename of the file handler.
@@ -1548,9 +1670,7 @@ def info_handler(parent, name='INFO.log', *, rotation='none'):
         ValueError: Invalid `rotation`.
     """
 
-    parent = pathlib.Path(parent).resolve()
-    parent.mkdir(parents=True, exist_ok=True)
-    return file_handler(parent / name, level=INFO, rotation=rotation)
+    return file_handler(FCPath(parent) / name, level=INFO, rotation=rotation)
 
 
 def warning_handler(parent, name='WARNINGS.log', *, rotation='none'):
@@ -1583,9 +1703,7 @@ def warning_handler(parent, name='WARNINGS.log', *, rotation='none'):
         ValueError: Invalid `rotation`.
     """
 
-    parent = pathlib.Path(parent).resolve()
-    parent.mkdir(parents=True, exist_ok=True)
-    return file_handler(parent / name, level=WARNING, rotation=rotation)
+    return file_handler(FCPath(parent) / name, level=WARNING, rotation=rotation)
 
 
 def error_handler(parent, name='ERRORS.log', *, rotation='none'):
@@ -1618,8 +1736,25 @@ def error_handler(parent, name='ERRORS.log', *, rotation='none'):
         ValueError: Invalid `rotation`.
     """
 
-    parent = pathlib.Path(parent).resolve()
-    parent.mkdir(parents=True, exist_ok=True)
-    return file_handler(parent / name, level=ERROR, rotation=rotation)
+    return file_handler(FCPath(parent) / name, level=ERROR, rotation=rotation)
+
+
+def stream_handler(level=HIDDEN+1, stream=sys.stdout):
+    """Stream handler for a PdsLogger, e.g., for directing messages to the terminal.
+
+    Parameters:
+        level (int or str, optional):
+            The minimum logging level at which to log messages; either an int or one of
+            "fatal", "error", "warn", "warning", "info", "debug", or "hidden".
+        stream (stream, optional):
+            An output stream, defaulting to the terminal via sys.stdout.
+    """
+
+    if isinstance(level, str):
+        level = _DEFAULT_LEVEL_BY_NAME[_repair_level_name(level)]
+
+    handler = logging.StreamHandler(stream)
+    handler.setLevel(level)
+    return handler
 
 ##########################################################################################

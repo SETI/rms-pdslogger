@@ -9,8 +9,6 @@ description = "Extension to the Python logging module"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "numpy",
-    "pyparsing",
     "xattr; platform_system!='Windows'"
 ]
 license = {text = "Apache-2.0"}

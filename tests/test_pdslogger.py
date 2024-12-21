@@ -3,6 +3,7 @@
 ##########################################################################################
 
 import pdslogger as P
+from pdslogger import LoggerError
 
 from contextlib import redirect_stdout
 import io
@@ -564,3 +565,57 @@ class Test_PdsLogger(unittest.TestCase):
         finally:
             shutil.rmtree(dirpath)
             pass
+
+    def test_loggererror(self):
+        err = LoggerError('message')
+        self.assertEqual(str(err), 'message')
+        err.level = 30
+        err.force = False
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'message')
+        err2.level = 30
+        err2.force = False
+        err2.stacktrace = False
+
+        err = LoggerError('message', 'filepath', level='debug', force=True)
+        self.assertEqual(str(err), 'message: filepath')
+        err.level = 10
+        err.force = True
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'message: filepath')
+        err2.level = 10
+        err2.force = True
+        err2.stacktrace = False
+
+        err1 = ValueError('this is a ValueError', level=25)
+        err = LoggerError(err1)
+        self.assertEqual(str(err), 'ValueError(this is a ValueError)')
+        err.level = 25
+        err.force = False
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'ValueError(this is a ValueError)')
+        err2.level = 25
+        err2.force = False
+        err2.stacktrace = False
+
+        err = LoggerError(err1, 'filepath', stacktrace=True)
+        self.assertEqual(str(err), 'ValueError(this is a ValueError): filepath')
+        err.level = 30
+        err.force = False
+        err.stacktrace = True
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'ValueError(this is a ValueError): filepath')
+        err2.level = 30
+        err2.force = False
+        err2.stacktrace = True
+
+
+
+

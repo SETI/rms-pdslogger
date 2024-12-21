@@ -103,8 +103,12 @@ class or define your own subclass.
 Simple tools are also provided to create handlers to assign to a `PdsLogger`
 using `add_handler()` and related methods:
 
-* `file_handler()` is a function that provides a rich set of options for managing
-  log files, including version numbering and daily rotations.
+* `file_handler()` is a function that provides a rich set of options for constructing
+  `logging.FileHandler` objects, which allow logs to be written to a file. The options
+  include version numbering, appending a date or time to the file name, and daily
+  rotations. `file_handler()`  also supports the RMS Node's `filecache` module, which
+  allows log files to be seamlessly saved into cloud storage; simply pass in a URI or
+  `FCPath` object instead of a local file path.
 * `info_handler()`, `warnings_handler()`, and `error_handler()` are
   simpler versions of the above, in which the level of message logging is implied.
 * `stream_handler()` is a function that creates handlers to write to an I/O
