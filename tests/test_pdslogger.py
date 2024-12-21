@@ -591,8 +591,8 @@ class Test_PdsLogger(unittest.TestCase):
         err2.force = True
         err2.stacktrace = False
 
-        err1 = ValueError('this is a ValueError', level=25)
-        err = LoggerError(err1)
+        err1 = ValueError('this is a ValueError')
+        err = LoggerError(err1, level=25)
         self.assertEqual(str(err), 'ValueError(this is a ValueError)')
         err.level = 25
         err.force = False
@@ -615,7 +615,3 @@ class Test_PdsLogger(unittest.TestCase):
         err2.level = 30
         err2.force = False
         err2.stacktrace = True
-
-
-
-
