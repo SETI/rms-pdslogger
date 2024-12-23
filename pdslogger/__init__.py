@@ -22,8 +22,8 @@ will be removed upon closing. Use this feature, for example, to obtain separate 
 for individual tasks or when processing a sequence of individual files.
 
 The constructor allows the user to create additional error categories beyond the standard
-ones named "`debug`", "`info`", "`warn`", etc. Each category can be assigned its own
-numeric level, where DEBUG=10, INFO=20, WARNING=30, ERROR=40, and FATAL=50. A level of
+ones named "`debug`", "`info`", "`warning`", etc. Each category can be assigned its own
+numeric level, where DEBUG=10, INFO=20, WARNING=30, ERROR=40, and CRITICAL=50. A level of
 None or HIDDEN means that messages with this alias are always suppressed.
 
 The following additional message categories are used widely by the RMS Node and are
@@ -32,12 +32,12 @@ defined by default:
 * "`normal`" (default level 20=INFO) is used for any normal outcome.
 * "`header`" (default level 20=INFO) is used for message headers following
   :meth:`~PdsLogger.open` and summary messages following :meth:`~PdsLogger.close`.
-* "`exception`" (default level 50=FATAL) is used when an exception is encountered.
+* "`exception`" (default level 50=CRITICAL) is used when an exception is encountered.
 * "`ds_store`" (default level 10=DEBUG) is used when a task encounters a ".DS_Store" file
   as managed by the MacOS Finder.
 * "`dot_`" (default level 40=ERROR) is used when a file beginning with "._" is
   encountered. These files are sometimes created by "tar" commands in MacOS.
-* "`invisible`" (default level 30=WARN) is used if any other invisible file is
+* "`invisible`" (default level 30=WARNING) is used if any other invisible file is
   encountered.
 
 Of course, any of these default levels can be modified on a logger-by-logger basis.
@@ -55,8 +55,8 @@ and optional file path. Also, use :meth:`~PdsLogger.add_root` and related method
 exercise more control over how file paths appear.
 
 Use :meth:`~PdsLogger.log` to log a message or else level-specific methods called
-:meth:`~PdsLogger.debug`, :meth:`~PdsLogger.info`, :meth:`~PdsLogger.warn`, etc. Each of
-these methods receives a message string and also an optional file path, which is
+:meth:`~PdsLogger.debug`, :meth:`~PdsLogger.info`, :meth:`~PdsLogger.warning`, etc. Each
+of these methods receives a message string and also an optional file path, which is
 automatically formatted to appear after the message text in the log.
 :meth:`~PdsLogger.exception` can be used inside a Python **except** clause to write an
 exception message into the log, including the stacktrace. If you desire greater control
@@ -86,14 +86,14 @@ to it. As a result, if you really wish not to see any messages, you must assign 
 
 In the Macintosh Finder, log files are color-coded by the most severe message encountered
 within the file: green for "info", yellow for warnings, red for errors, and violet for
-fatal or critical errors.
+critical or fatal errors.
 
 For extremely simple logging needs, four subclasses of :class:`PdsLogger` are provided.
 :class:`EasyLogger` prints all messages above a specified level of severity to the
 terminal. :class:`ErrorLogger` only prints error messages. :class:`QuietLogger` only
-prints exceptions and other "fatal" messages. :class:`NullLogger` suppresses all messages,
-including logged exceptions. These four subclasses have the common trait that they cannot
-be assigned handlers.
+prints exceptions and other "critical" messages. :class:`NullLogger` suppresses all
+messages, including logged exceptions. These four subclasses have the common trait that
+they cannot be assigned handlers.
 """
 
 import atexit
@@ -124,17 +124,18 @@ except ImportError:
 
 _TIME_FMT = '%Y-%m-%d %H:%M:%S.%f'
 
-FATAL   = logging.FATAL
-ERROR   = logging.ERROR
-WARN    = logging.WARN
-WARNING = logging.WARNING
-INFO    = logging.INFO
-DEBUG   = logging.DEBUG
-HIDDEN  = 1     # Used for messages that are never displayed but might be summarized
+CRITICAL = logging.CRITICAL
+FATAL    = logging.CRITICAL
+ERROR    = logging.ERROR
+WARNING  = logging.WARNING
+WARN     = logging.WARNING
+INFO     = logging.INFO
+DEBUG    = logging.DEBUG
+HIDDEN   = 1    # Used for messages that are never displayed but might be summarized
 
 _LEVEL_NAME_ALIASES = {
     'warn': 'warning',
-    'critical': 'fatal',
+    'fatal': 'critical',
 }
 
 def _repair_level_name(name):
@@ -144,29 +145,29 @@ def _repair_level_name(name):
 
 _DEFAULT_LEVEL_BY_NAME = {
     # Standard level values
-    'fatal'   : logging.FATAL,  # 50
-    'error'   : logging.ERROR,  # 40
-    'warning' : logging.WARN,   # 30
-    'info'    : logging.INFO,   # 20
-    'debug'   : logging.DEBUG,  # 10
-    'hidden'  : HIDDEN,         #  1
+    'critical': logging.CRITICAL,   # 50
+    'error'   : logging.ERROR,      # 40
+    'warning' : logging.WARNING,    # 30
+    'info'    : logging.INFO,       # 20
+    'debug'   : logging.DEBUG,      # 10
+    'hidden'  : HIDDEN,             #  1
 
     # Additional level values defined for every PdsLogger
     'normal'   : logging.INFO,
     'ds_store' : logging.DEBUG,
     'dot_'     : logging.ERROR,
-    'invisible': logging.WARN,
-    'exception': logging.FATAL,
+    'invisible': logging.WARNING,
+    'exception': logging.CRITICAL,
     'header'   : logging.INFO,
 }
 
 _DEFAULT_LEVEL_NAMES = {
-    logging.FATAL: 'fatal',     # 50
-    logging.ERROR: 'error',     # 40
-    logging.WARN : 'warning',   # 30
-    logging.INFO : 'info',      # 20
-    logging.DEBUG: 'debug',     # 10
-    HIDDEN       : 'hidden',    #  1
+    logging.CRITICAL: 'critical',   # 50
+    logging.ERROR   : 'error',      # 40
+    logging.WARNING : 'warning',    # 30
+    logging.INFO    : 'info',       # 20
+    logging.DEBUG   : 'debug',      # 10
+    HIDDEN          : 'hidden',     #  1
 }
 
 _DEFAULT_LIMITS_BY_NAME = {     # we're treating all as unlimited by default now
@@ -187,11 +188,17 @@ class PdsLogger(logging.Logger):
     See https://rms-pdslogger.readthedocs.io/en/latest/module.html for details.
     """
 
-    _LOGGER_IS_FAKE = False     # Used by EasyLogger below
+    # Overridden by EasyLogger, etc.
+    _LOGGER_IS_FAKE = False     # True to prevent registration
+    _NO_HANDLERS = False        # True to prevent additional handlers
+    _NO_LEVELS = False          # True to prevent changing the log level
+
+    # Overridden by as_pdslogger
+    _FROM_LOGGER = False
 
     def __init__(self, logname, *, default_prefix='pds.', levels={}, limits={}, roots=[],
-                 level=HIDDEN+1, timestamps=True, digits=6, lognames=True, pid=False,
-                 indent=True, blanklines=True, colors=True, maxdepth=6):
+                 level=HIDDEN+1, timestamps=True, digits=6, lognames=True,  pid=False,
+                 indent=True, levelnames=True, blanklines=True, colors=True, maxdepth=6):
         """Constructor for a PdsLogger.
 
         Parameters:
@@ -223,6 +230,9 @@ class PdsLogger(logging.Logger):
             indent (bool, optional):
                 True to include a sequence of dashes in each log record to provide a
                 visual indication of the depth in a logging hierarchy.
+            levelnames (bool, optional):
+                True to include the name of the log level, e.g., "ERROR", in the log
+                records.
             blanklines (bool, optional):
                 True to include a blank line in log files after a sub-logger is closed;
                 False otherwise.
@@ -234,7 +244,6 @@ class PdsLogger(logging.Logger):
         """
 
         logname = self._full_logname(logname, default_prefix)
-
         self._logname = logname
         if self._LOGGER_IS_FAKE:
             self._logger = None
@@ -267,6 +276,8 @@ class PdsLogger(logging.Logger):
             pid = False
         if indent is None:
             indent = True
+        if levelnames is None:
+            levelnames = True
         if blanklines is None:
             blanklines = True
         if colors is None:
@@ -280,6 +291,7 @@ class PdsLogger(logging.Logger):
         self._lognames = bool(lognames)
         self._pid = os.getpid() if pid else 0
         self._indent = bool(indent)
+        self._levelnames = bool(levelnames)
         self._blanklines = bool(blanklines)
         self._colors = bool(colors)
         self._maxdepth = maxdepth
@@ -288,7 +300,7 @@ class PdsLogger(logging.Logger):
         self._suppressions_logged = set()   # level names having had a suppression message
 
         # Support for multiple tiers in hierarchy
-        self._titles              = [self._logname]
+        self._titles              = [(self._logname, (), {})]   # (title, args, kwargs)
         self._start_times         = [datetime.datetime.now()]
         self._counters_by_name    = [defaultdict(int)]
         self._suppressed_by_name  = [defaultdict(int)]
@@ -302,7 +314,7 @@ class PdsLogger(logging.Logger):
         for level_name, level_num in limits.items():
             self.set_limit(level_name, level_num)
 
-        # Mapping from log file absolute path to tuple (fatals, errors, warns)
+        # Mapping from log file absolute path to tuple (criticals, errors, warns)
         self._log_file_summaries = {}
 
         # Mappings from local file path to FCPath and FileHandler, if any
@@ -315,7 +327,8 @@ class PdsLogger(logging.Logger):
     @staticmethod
     def get_logger(logname, *, default_prefix='pds.', levels={}, limits={}, roots=[],
                    level=None, timestamps=None, digits=None, lognames=None, pid=None,
-                   indent=None, blanklines=None, colors=None, maxdepth=None):
+                   indent=None, levelnames=None, blanklines=None, colors=None,
+                   maxdepth=None):
         """Return the current logger by this name if it already exists; otherwise,
         construct and return a new PdsLogger.
 
@@ -348,6 +361,9 @@ class PdsLogger(logging.Logger):
             indent (bool, optional):
                 True to include a sequence of dashes in each log record to provide a
                 visual indication of the tier in a logging hierarchy.
+            levelnames (bool, optional):
+                True to include the name of the log level, e.g., "ERROR", in the log
+                records.
             blanklines (bool, optional):
                 True to include a blank line in log files when a tier in the hierarchy is
                 closed; False otherwise.
@@ -363,7 +379,8 @@ class PdsLogger(logging.Logger):
             logger = _LOOKUP[logname]
             logger.set_format(level=level, timestamps=timestamps, digits=digits,
                               lognames=lognames, pid=pid, indent=indent,
-                              blanklines=blanklines, colors=colors, maxdepth=maxdepth)
+                              levelnames=levelnames, blanklines=blanklines, colors=colors,
+                              maxdepth=maxdepth)
             logger._merge_level_names(levels)
 
             for name, value in limits.items():
@@ -376,8 +393,32 @@ class PdsLogger(logging.Logger):
 
         return PdsLogger(logname, levels=levels, limits=limits, roots=roots, level=level,
                          timestamps=timestamps, digits=digits, lognames=lognames, pid=pid,
-                         indent=indent, blanklines=blanklines, colors=colors,
-                         maxdepth=maxdepth)
+                         indent=indent, levelnames=levelnames, blanklines=blanklines,
+                         colors=colors, maxdepth=maxdepth)
+
+    @staticmethod
+    def as_pdslogger(logger):
+        """Wrap a standard logging.Logger into a PdsLogger.
+
+        A PdsLogger is returned as is.
+
+        Parameters:
+            logger (logging.Logger or PdsLogger): logger to convert to PdsLogger.
+
+        Returns:
+            PdsLogger: converted logger.
+        """
+
+        if isinstance(logger, PdsLogger):
+            return logger
+
+        new_logger = PdsLogger.get_logger(logger.name, level=logger.level,
+                                          timestamps=False, lognames=False, pid=False,
+                                          indent=False, levelnames=False,
+                                          blanklines=False, colors=False)
+        new_logger.add_handler(*logger.handlers)
+        new_logger._FROM_LOGGER = True
+        return new_logger
 
     @staticmethod
     def _full_logname(logname, default_prefix='pds.'):
@@ -417,6 +458,9 @@ class PdsLogger(logging.Logger):
                 The minimum level or level name for a record to enter the log.
         """
 
+        if self._NO_LEVELS:     # for ErrorLogger, QuietLogger, etc.
+            return
+
         if isinstance(level, str):
             self._min_levels[-1] = self._level_by_name[_repair_level_name(level)]
         else:
@@ -426,7 +470,8 @@ class PdsLogger(logging.Logger):
             self._logger.setLevel(self._min_levels[-1])
 
     def set_format(self, *, level=None, timestamps=None, digits=None, lognames=None,
-                   pid=None, indent=None, blanklines=None, colors=None, maxdepth=None):
+                   pid=None, indent=None, levelnames=None, blanklines=None, colors=None,
+                   maxdepth=None):
         """Set or modify the formatting and other properties of this PdsLogger.
 
         Parameters:
@@ -446,6 +491,9 @@ class PdsLogger(logging.Logger):
                 True or False, defining whether to include a sequence of dashes in each
                 log record to provide a visual indication of the tier in a logging
                 hierarchy.
+            levelnames (bool, optional):
+                True to include the name of the log level, e.g., "ERROR", in the log
+                records.
             blanklines (bool, optional):
                 True or False, defining whether to include a blank line in log files when
                 a tier in the hierarchy is closed.
@@ -469,6 +517,8 @@ class PdsLogger(logging.Logger):
             self._pid = os.getpid() if pid else 0
         if indent is not None:
             self._indent = bool(indent)
+        if levelnames is not None:
+            self._levelnames = bool(levelnames)
         if blanklines is not None:
             self._blanklines = bool(blanklines)
         if colors is not None:
@@ -524,7 +574,7 @@ class PdsLogger(logging.Logger):
         """
 
         # EasyLogger and its subclasses do not accept handlers; warn
-        if not self._logger:
+        if self._NO_HANDLERS:
             if handlers and not hasattr(self, 'warned'):
                 warnings.warn(f'Class {type(self).__name__} does not accept handlers')
                 self.warned = True
@@ -568,7 +618,7 @@ class PdsLogger(logging.Logger):
                 that log path is removed.
         """
 
-        if not self._logger:                                # if EasyLogger or NullLogger
+        if self._NO_HANDLERS:   # if EasyLogger, NullLogger, etc.
             return
 
         for handler in handlers:
@@ -707,6 +757,10 @@ class PdsLogger(logging.Logger):
     def propagate(self):
         return self._logger.propagate
 
+    @propagate.setter
+    def propagate(self, value):
+        self._logger.propagate = bool(value)
+
     @property
     def handlers(self):
         return self._handlers
@@ -736,11 +790,29 @@ class PdsLogger(logging.Logger):
             # Convert each logger to a PdsLogger if it's defined
         return loggers
 
+    def addFilter(self, filter):
+        self._logger.addFilter(filter)
+
+    def removeFilter(self, filter):
+        self._logger.removeFilter(filter)
+
+    def filter(self, record):
+        return self._logger.filter(record)
+
     def addHandler(self, handler):
         self.add_handler(handler)
 
     def removeHandler(self, handler):
         self.remove_handler(handler)
+
+    def findCaller(self, stack_info=False, stacklevel=1):
+        return self._logger.findCaller(stack_info=stack_info, stacklevel=stacklevel)
+
+    def handle(self, record):
+        self._logger.handle(record)
+
+    def makeRecord(self, *args, **kwargs):
+        return self._logger.makeRecord(*args, **kwargs)
 
     def hasHandlers(self):
         return bool(self._handlers)
@@ -750,6 +822,7 @@ class PdsLogger(logging.Logger):
     ######################################################################################
 
     class _Closer():
+        """Context Manager used by open()."""
         def __init__(self, logger):
             self.logger = logger
 
@@ -759,13 +832,19 @@ class PdsLogger(logging.Logger):
         def __exit__(self, exc_type, exc_val, exc_tb):
             self.logger.close()
 
-    def open(self, title, filepath='', *, level=None, limits={}, handler=[], force=False):
+    def open(self, title, *args, filepath='', level=None, limits={}, handler=[],
+             force=False, **kwargs):
         """Begin a new tier in the logging hierarchy.
 
         Parameters:
             title (str):
                 Title of the new section of the log.
-            filepath (str, optional):
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns inside
+                the message string (indicated by "%" of "{") that use these args, a single
+                argument is interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
                 Optional file path to include in the title.
             level (int, or str, optional):
                 The level or level name for the minimum logging level to use within this
@@ -779,6 +858,9 @@ class PdsLogger(logging.Logger):
             force (bool, optional):
                 True to force the logging of the "open" messages, even if the current
                 logging level is above that specified by `level`.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the title
+                string using the string formatted operator.
 
         Returns:
             context manager:
@@ -786,17 +868,23 @@ class PdsLogger(logging.Logger):
                 not being used as a context manager, this object can be ignored.
         """
 
-        title = str(title)
+        # Format the title + filepath
+        if not filepath and len(args) == 1 and not _message_uses_args(title):
+            filepath = args[0]
+            args = []
+
+        header_level = self._level_by_name['header']
+        title = self._format_message(header_level, title, *args, **kwargs)
         if filepath:
             title += ': ' + self._logged_filepath(filepath)
 
+        # Format the level name
         if level is None:
             new_level = self._min_levels[-1]
         else:
             new_level = self._level_by_name[_repair_level_name(level)]
 
         # Write header message at current tier
-        header_level = self._level_by_name['header']
         if header_level >= min(new_level, self._min_levels[-1]) or force:
             self._logger_log(header_level, self._logged_text('HEADER', title))
 
@@ -804,7 +892,7 @@ class PdsLogger(logging.Logger):
         if self._get_depth() >= self._maxdepth:
             raise ValueError('Maximum logging hierarchy depth has been reached')
 
-        self._titles.append(title)
+        self._titles.append((title, args, kwargs))
         self._start_times.append(datetime.datetime.now())
 
         # Update the handlers
@@ -839,20 +927,20 @@ class PdsLogger(logging.Logger):
         current tier of the hierarchy.
 
         Returns:
-            tuple: (number of fatal errors, number of errors, number of warnings, total
+            tuple: (number of critical errors, number of errors, number of warnings, total
             number of messages). These counts include messages that were suppressed
             because a limit was reached.
         """
 
-        fatal = 0
+        criticals = 0
         errors = 0
         warnings = 0
         total = 0
         for name, count in self._counters_by_name[-1].items():
             level = self._level_by_name[name]
             count += self._suppressed_by_name[-1][name]
-            if level >= FATAL:
-                fatal += count
+            if level >= CRITICAL:
+                criticals += count
             elif level >= ERROR:
                 errors += count
             elif level >= WARNING:
@@ -860,9 +948,9 @@ class PdsLogger(logging.Logger):
 
             total += count
 
-        return (fatal, errors, warnings, total)
+        return (criticals, errors, warnings, total)
 
-    def close(self, force=False):
+    def close(self, *, force=False):
         """Close the log at its current depth in the hierarchy.
 
         The closure is logged, plus a summary of the time elapsed and levels identified
@@ -875,7 +963,7 @@ class PdsLogger(logging.Logger):
                 messages at this level and higher.
 
         Returns:
-            tuple: (number of fatal errors, number of errors, number of warnings, total
+            tuple: (number of critical errors, number of errors, number of warnings, total
             number of messages). These counts include messages that were suppressed
             because a limit was reached.
         """
@@ -890,8 +978,9 @@ class PdsLogger(logging.Logger):
 
         # Create a list of messages summarizing results; each item is (logged level, text)
         header_level = self._level_by_name['header']
-        messages = [(header_level, 'Completed: ' + self._titles[-1])]
+        (title, title_args, title_kwargs) = self._titles[-1]
 
+        messages = []
         if self._timestamps:
             elapsed = datetime.datetime.now() - self._start_times[-1]
             messages += [(header_level, 'Elapsed time = ' + str(elapsed))]
@@ -923,7 +1012,7 @@ class PdsLogger(logging.Logger):
                 self._suppressed_by_name[-2][name] += self._suppressed_by_name[-1][name]
 
         # Determine values to return
-        (fatal, errors, warnings, total) = self.summarize()
+        (criticals, errors, warnings, total) = self.summarize()
 
         # Close the handlers at this level
         for handler in list(self._local_handlers[-1]):  # work from a copy of the list
@@ -942,6 +1031,10 @@ class PdsLogger(logging.Logger):
             self._logger.setLevel(self._min_levels[-1])
 
         # Log the summary at the outer tier
+        if header_level >= min_level_for_log:
+            self._logger_log(header_level,
+                             self._logged_text('SUMMARY', 'Completed: ' + title),
+                             *title_args, **title_kwargs)
         for level, note in messages:
             if level >= min_level_for_log:
                 self._logger_log(header_level, self._logged_text('SUMMARY', note))
@@ -950,7 +1043,7 @@ class PdsLogger(logging.Logger):
         if self._blanklines:
             self.blankline(header_level)
 
-        return (fatal, errors, warnings, total)
+        return (criticals, errors, warnings, total)
 
     def message_count(self, name):
         """Return the number of messages generated at this named level since this last
@@ -967,7 +1060,8 @@ class PdsLogger(logging.Logger):
         name = _repair_level_name(name)
         return self._counters_by_name[-1][name] + self._suppressed_by_name[-1][name]
 
-    def log(self, level, message, filepath='', *, force=False, suppress=False):
+    def log(self, level, message, *args, filepath='', force=False, suppress=False,
+            **kwargs):
         """Log one record.
 
         Parameters:
@@ -975,6 +1069,11 @@ class PdsLogger(logging.Logger):
                 Logging level or level name.
             message (str):
                 Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns inside
+                the message string (indicated by "%" of "{") that use these args, a single
+                argument is interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
             force (bool, optional):
@@ -984,7 +1083,15 @@ class PdsLogger(logging.Logger):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
                 takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
+
+        # Interpret the args
+        if not filepath and len(args) == 1 and not _message_uses_args(message):
+            filepath = args[0]
+            args = []
 
         # Determine the level name and number
         if isinstance(level, str):
@@ -1007,7 +1114,7 @@ class PdsLogger(logging.Logger):
 
         # Determine whether to print
         if force:
-            level_for_log = FATAL
+            level_for_log = CRITICAL
             log_now = True
         elif suppress:
             log_now = False
@@ -1023,7 +1130,7 @@ class PdsLogger(logging.Logger):
         # Log now
         if log_now:
             text = self._logged_text(level_name_for_log, message, filepath)
-            self._logger_log(level_for_log, text)
+            self._logger_log(level_for_log, text, *args, **kwargs)
             self._counters_by_name[-1][level_name_for_count] += 1
             if not force:
                 self._suppressions_logged.discard(level_name_for_count)
@@ -1041,167 +1148,379 @@ class PdsLogger(logging.Logger):
                 self._logger_log(level_for_log, text)
                 self._suppressions_logged.add(level_name_for_count)
 
-    def debug(self, message, filepath='', force=False):
+    def debug(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "debug".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "debug".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('debug', message, filepath, force=force)
+        self.log('debug', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def info(self, message, filepath='', force=False):
+    def info(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "info".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "info".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('info', message, filepath, force=force)
+        self.log('info', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def warn(self, message, filepath='', force=False):
-        """Log a message with level == "warn" or "warning".
+    def warning(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
+        """Log a message with level == "warning".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "warn".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('warn', message, filepath, force=force)
+        self.log('warn', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def error(self, message, filepath='', force=False):
+    def warn(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
+        """Log a message with level == "warning".
+
+        Parameters:
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
+        """
+
+        self.log('warn', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
+
+    def error(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "error".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "critical".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('error', message, filepath, force=force)
+        self.log('error', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def critical(self, message, filepath='', force=False):
-        """Log a message with level == "critical", equivalent to "fatal".
+    def critical(self, message, *args, filepath='', force=False, suppress=False,
+                 **kwargs):
+        """Log a message with level == "critical".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "critical".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('critical', message, filepath, force=force)
+        self.log('critical', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def fatal(self, message, filepath='', force=False):
-        """Log a message with level == "fatal".
+    def fatal(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
+        """Log a message with level == "fatal", equivalent to "critical".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "fatal".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('fatal', message, filepath, force=force)
+        self.log('fatal', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def normal(self, message, filepath='', force=False):
+    def normal(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "normal", equivalent to "info".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "normal".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('normal', message, filepath, force=force)
+        self.log('normal', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def ds_store(self, message, filepath='', force=False):
+    def ds_store(self, message, *args, filepath='', force=False, suppress=False,
+                 **kwargs):
         """Log a message with level == "ds_store", indicating that a file named
         ".DS_Store" was found.
 
         These files are sometimes created on a Mac.
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "ds_store".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('ds_store', message, filepath, force=force)
+        self.log('ds_store', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def dot_underscore(self, message, filepath='', force=False):
+    def dot_underscore(self, message, *args, filepath='', force=False, suppress=False,
+                       **kwargs):
         """Log a message with level == `"dot_"`, indicating that a file with a name
         beginning with "._" was found.
 
         These files are sometimes created during file transfers from a Mac.
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of `"dot_"`.
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('dot_', message, filepath, force=force)
+        self.log('dot_', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def invisible(self, message, filepath='', force=False):
+    def invisible(self, message, *args, filepath='', force=False, suppress=False,
+                  **kwargs):
         """Log a message with level == "invisible", indicating that an invisible file was
         found.
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str or pathlib.Path, optional): File path to include in the message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "invisible".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('invisible', message, filepath, force=force)
+        self.log('invisible', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def hidden(self, message, filepath='', force=False):
+    def hidden(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "hidden".
 
         Parameters:
-            message (str): Text of the message.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            force (bool, optional): True to force the message to be logged even if the
-                logging level is above the level of "hidden".
+            message (str):
+                Message to log.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                Path of the relevant file, if any.
+            force (bool, optional):
+                True to force message reporting even if the relevant limit has been
+                reached or the level falls below this PdsLogger's minimum.
+            suppress (bool, optional):
+                True to suppress message reporting even if the relevant limit has not been
+                reached. The message is still included in the count. The `force` option
+                takes precedence over this option.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
         """
 
-        self.log('hidden', message, filepath, force=force)
+        self.log('hidden', message, *args, filepath=filepath, force=force,
+                 suppress=suppress, **kwargs)
 
-    def exception(self, error, filepath='', *, stacktrace=True, more=''):
+    def exception(self, error, *args, filepath='', stacktrace=None, exc_info=None,
+                  more='', **kwargs):
         """Log an Exception or KeyboardInterrupt.
 
         This method is only to be used inside an `except` clause.
 
         Parameters:
-            error (Exception): The error raised.
-            filepath (str, Path, or FCPath, optional): File path to include in the
-                message.
-            stacktrace (bool, optional): True to include the stacktrace of the exception.
-            more (str, optional): Additional information to write into the log following
-                the error message.
+            error (Exception or str):
+                The error raised or a text message.
+            *args:
+                Zero or more items to be substituted into the message string using the
+                string formatting operator. If there are no substitution patterns
+                (indicated by "%" of "{") inside the message string, a single argument is
+                interpreted as the `filepath`.
+            filepath (str, Path, or FCPath, optional):
+                File path to include in the message.
+            stacktrace (bool, optional):
+                True to include the stacktrace of the exception.
+            exc_info (bool, optional):
+                Alternative name for `stacktrace`. If both are unspecified, True is
+                assumed.
+            more (str, optional):
+                Additional information to write into the log following the error message.
+            **kwargs:
+                Zero or more keyword=value attributes to be substituted into the message
+                string using the string formatted operator.
 
         Notes:
             The :class:`LoggerError` constructor provides additional contol over how an
@@ -1212,32 +1531,64 @@ class PdsLogger(logging.Logger):
             the log and then this exception is re-raised.
         """
 
+        # Get the error status
+        etype, sys_error, tb = sys.exc_info()
+        if etype is None:   # pragma: no cover (can't simulate)
+            return          # Exception was already handled
+
+        # Interpret the input
+        level = self._level_by_name['exception']
+        if isinstance(error, str):
+            message = self._format_message(level, error, *args, **kwargs)
+            error = sys_error
+        else:
+            message = ''
+            etype = type(error)
+
+        if stacktrace is None:
+            stacktrace = exc_info
+        if stacktrace is None:
+            stacktrace = True
+
+        # KeyboardInterrupt is a special case
         if isinstance(error, KeyboardInterrupt):    # pragma: no cover (can't simulate)
-            self.fatal('**** Interrupted by user')
+            self.critical('**** Interrupted by user')
             raise error
 
+        # LoggerError is a special case
         if isinstance(error, LoggerError):
             if isinstance(error.level, str):
                 level = self._level_by_name[error.level]
             else:
                 level = error.level
 
-            self.log(level, error.message, filepath, force=error.force)
+            self.log(level, message or error.message, filepath=filepath,
+                     force=error.force)
             if more:
                 self._logger_log(level, more)
             if stacktrace and error.stacktrace:
-                (etype, value, tb) = sys.exc_info()
                 self._logger_log(level, ''.join(traceback.format_tb(tb)))
 
             return
 
-        (etype, value, tb) = sys.exc_info()
-        if etype is None:                           # pragma: no cover (can't simulate)
-            return      # Exception was already handled
+        # Any other Exception...
+        if not message:
+            message = '**** ' + etype.__name__ + ' ' + str(error)
 
-        self.log('exception', '**** ' + etype.__name__ + ' ' + str(value),
-                 filepath, force=True)
-        level = self._level_by_name['exception']
+        if not filepath and len(args) == 1 and not _message_uses_args(message):
+            filepath = args[0]
+            args = []
+
+        # Use logger.exception if this PdsLogger was derived from a logging.Logger
+        if self._FROM_LOGGER:
+            self._logger.exception(message + self._logged_filepath(filepath), *args,
+                                   exc_info=stacktrace, **kwargs)
+            if more:
+                self._logger_log(level, more)
+            return
+
+        # Default PdsLogger handling
+        self.log('exception', message, *args, filepath=filepath, force=True)
         if more:
             self._logger_log(level, more)
         if stacktrace:
@@ -1253,24 +1604,26 @@ class PdsLogger(logging.Logger):
         """
 
         if force:
-            level = FATAL
+            level = CRITICAL
         elif isinstance(level, str):
             level = self._level_by_name[_repair_level_name(level)]
 
         self._logger_log(level, '')
 
-    def _logger_log(self, level, message):
+    def _logger_log(self, level, message, *args, **kwargs):
         """Log a message if it exceeds the logging level or is forced.
 
         Parameters:
             level (int): Logging level.
             message (str): Complete message text.
+            *args: Additional arguments passed to self._logger.log().
+            *kwargs: Additional keyword arguments passed to self._logger.log().
         """
 
         if not self._logger.handlers:       # if no handlers, print
-            print(message)
+            print(self._format_message(level, message, *args, **kwargs))
         else:
-            self._logger.log(level, message)
+            self._logger.log(level, message, *args, **kwargs)
 
     ######################################################################################
     # Message formatting utilities
@@ -1310,7 +1663,10 @@ class PdsLogger(logging.Logger):
                 parts[-1] = ' |'
             parts += [self._get_depth() * '-', '| ']
 
-        parts += [self._logged_level_name(level), ' | ', message]
+        if self._levelnames:
+            parts += [self._logged_level_name(level), ' | ']
+
+        parts.append(message)
 
         filepath = self._logged_filepath(filepath)
         if filepath:
@@ -1373,6 +1729,43 @@ class PdsLogger(logging.Logger):
 
         return len(self._titles) - 1
 
+    def _format_message(self, level, message, *args, **kwargs):
+        """The given message with any substitutions applied, possibly including those from
+        the LogRecord.
+        """
+
+        if '%' not in message:
+            return message
+
+        if _message_uses_args(message):
+            return message % args
+
+        if _message_uses_logrecord(message):
+            # Add the required attributes for an internal logger when first needed
+            if not hasattr(self, '_logrecords'):
+                self._logrecords = []                       # destination of LogRecords
+                self._logrecord_logger = logging.getLogger('LogRecord')
+                self._logrecord_logger.setLevel(1)
+                self._logrecord_logger.addHandler(_LogRecordHandler(self._logrecords))
+
+            # Each message to this logger appends the LogRecord to self._logrecords
+            self._logrecord_logger.log(level, message)
+            logrecord = self._logrecords.pop()
+            kwargs.update(logrecord.__dict__)
+
+            # Add the asctime value to the logrecord dictionary if needed
+            if '%(asctime)' in message:
+                # Get a user-defined formatter if any
+                if (self._logger and self._logger.handlers
+                                 and self._logger.handlers[0].formatter):
+                    formatter = self._logger.handlers[0].formatter
+                else:
+                    formatter = logging._defaultFormatter
+                asctime = formatter.formatTime(logrecord)
+                kwargs['asctime'] = asctime
+
+        return message % kwargs
+
 ##########################################################################################
 # Alternative loggers
 ##########################################################################################
@@ -1381,11 +1774,12 @@ class EasyLogger(PdsLogger):
     """Simple subclass of PdsLogger that prints messages to the terminal."""
 
     _LOGGER_IS_FAKE = True      # Prevent registration as an actual logger
+    _NO_HANDLERS = True
 
     def __init__(self, logname='easylog', **kwargs):
         PdsLogger.__init__(self, logname, **kwargs)
 
-    def _logger_log(self, level, message):
+    def _logger_log(self, level, message, *args, **kwargs):
         """Log a message if it exceeds the logging level or is forced.
 
         Parameters:
@@ -1393,7 +1787,7 @@ class EasyLogger(PdsLogger):
             message (str): Complete message text.
         """
 
-        print(message)
+        print(self._format_message(level, message, *args, **kwargs))
 
 
 class ErrorLogger(EasyLogger):
@@ -1403,37 +1797,27 @@ class ErrorLogger(EasyLogger):
 
     def __init__(self, logname='errorlog', **kwargs):
         PdsLogger.__init__(self, logname, **kwargs)
+        self.set_level(ERROR)
+        self._NO_LEVELS = True
 
-    def set_level(self, level):
-        """Set the level of messages for the current tier in the logger's hierarchy.
-
-        Ignored by ErrorLogger.
-        """
-        EasyLogger.set_level(self, ERROR)
-
-    def _logger_log(self, level, message):
+    def _logger_log(self, level, message, *args, **kwargs):
         if level >= ERROR:
-            print(message)
+            print(self._format_message(level, message, *args, **kwargs))
 
 
 class QuietLogger(EasyLogger):
-    """Simple subclass of PdsLogger that suppresses all messages except FATAL messages and
-    those that have been forced.
+    """Simple subclass of PdsLogger that suppresses all messages except CRITICAL messages
+    and those that have been forced.
     """
 
     def __init__(self, logname='quietlog', **kwargs):
         PdsLogger.__init__(self, logname, **kwargs)
+        self.set_level(CRITICAL)
+        self._NO_LEVELS = True          # Prevent changing the level
 
-    def set_level(self, level):
-        """Set the level of messages for the current tier in the logger's hierarchy.
-
-        Ignored by QuietLogger.
-        """
-        EasyLogger.set_level(self, FATAL)
-
-    def _logger_log(self, level, message):
-        if level >= FATAL:
-            print(message)
+    def _logger_log(self, level, message, *args, **kwargs):
+        if level >= CRITICAL:
+            print(self._format_message(level, message, *args, **kwargs))
 
 
 class NullLogger(EasyLogger):
@@ -1442,8 +1826,44 @@ class NullLogger(EasyLogger):
     def __init__(self, logname='nulllog', **kwargs):
         PdsLogger.__init__(self, logname, **kwargs)
 
-    def _logger_log(self, level, message):
+    def _logger_log(self, level, message, *args, **kwargs):
         return
+
+##########################################################################################
+# Support for the LogRecord formatting options
+##########################################################################################
+
+# An arg gets used by "%" not followed by "("
+_FORMAT_ARG_FINDER = re.compile(r'%[^\(]')
+
+def _message_uses_args(message):
+    """True if the message contains substitutions to be used by args (not kwargs)."""
+    message = message.replace('%%', '')  # in old-style formatting, ignore "%%"
+    return _FORMAT_ARG_FINDER.search(message) is not None
+
+
+_ATTRIBUTE_FINDER = re.compile(r'%\((\w+)\)')
+_ATTRIBUTE_NAMES = {'asctime', 'created', 'filename', 'funcName', 'levelname', 'levelno',
+                    'lineno', 'message', 'module', 'msecs', 'name', 'pathname', 'process',
+                    'processName', 'relativeCreated', 'thread', 'threadName', 'taskName'}
+
+def _message_uses_logrecord(message):
+    """True if the given message refers to an entry in the LogRecord."""
+    names = _ATTRIBUTE_FINDER.findall(message)
+    return bool(set(names) & _ATTRIBUTE_NAMES)
+
+
+# https://stackoverflow.com/questions/57420008/python-after-logging-debug-how-to-view-
+# its-logrecord
+class _LogRecordHandler(logging.Handler):
+    """A handler class that appends the latest LogRecord to an internal list."""
+
+    def __init__(self, records_list):
+        self.records_list = records_list
+        super().__init__()
+
+    def emit(self, record):
+        self.records_list.append(record)
 
 ##########################################################################################
 # LoggerError
@@ -1469,7 +1889,7 @@ class LoggerError(Exception):
                 appearing in the call to `exception()` will be used.
             force (bool, optional):
                 True to force the message to be logged even if the logging level is above
-                the level of "warn".
+                the level of "warning".
             level (int or str, optional):
                 The level or level name for a record to enter the log.
             stacktrace (bool, optional): True to include a stacktrace in the log.
@@ -1513,7 +1933,6 @@ STDOUT_HANDLER = logging.StreamHandler(sys.stdout)
 STDOUT_HANDLER.setLevel(HIDDEN + 1)
 NULL_HANDLER = logging.NullHandler()
 
-
 def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
     """File handler for a PdsLogger.
 
@@ -1522,7 +1941,7 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
             The path to the log file.
         level (int or str):
             The minimum logging level at which to log messages; either an int or one of
-            "fatal", "error", "warn", "warning", "info", "debug", or "hidden".
+            "critical", "error", "warning", "info", "debug", or "hidden".
         rotation (str, optional):
             Log file rotation method, one of:
 
@@ -1740,12 +2159,12 @@ def error_handler(parent, name='ERRORS.log', *, rotation='none'):
 
 
 def stream_handler(level=HIDDEN+1, stream=sys.stdout):
-    """Stream handler for a PdsLogger, e.g., for directing messages to the terminal.
+    """Stream handler, e.g., for directing logged messages to the terminal.
 
     Parameters:
         level (int or str, optional):
             The minimum logging level at which to log messages; either an int or one of
-            "fatal", "error", "warn", "warning", "info", "debug", or "hidden".
+            "critical", "error", "warning", "info", "debug", or "hidden".
         stream (stream, optional):
             An output stream, defaulting to the terminal via sys.stdout.
     """
