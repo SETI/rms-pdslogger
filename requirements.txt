@@ -1,9 +1,8 @@
 coverage
 flake8
 myst-parser
-numpy
-pyparsing
 pytest
+rms-filecache
 sphinx
 sphinxcontrib-napoleon
 sphinx-rtd-theme

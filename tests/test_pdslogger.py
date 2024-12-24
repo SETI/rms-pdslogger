@@ -3,6 +3,7 @@
 ##########################################################################################
 
 import pdslogger as P
+from pdslogger import LoggerError
 
 from contextlib import redirect_stdout
 import io
@@ -16,7 +17,7 @@ import unittest
 TIMETAG = re.compile(r'\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d\.\d+')
 ELAPSED = re.compile(r'0:00:00\.\d+')
 
-LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'FATAL',
+LEVELS = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL',
           'NORMAL', 'DS_STORE', 'DOT_', 'INVISIBLE']
 
 class Test_PdsLogger(unittest.TestCase):
@@ -31,7 +32,7 @@ class Test_PdsLogger(unittest.TestCase):
             L.info('INFO')
             L.warn('WARNING')
             L.error('ERROR')
-            L.fatal('FATAL')
+            L.fatal('CRITICAL')
             L.normal('NORMAL')
             L.ds_store('DS_STORE')
             L.dot_underscore('DOT_')
@@ -153,14 +154,14 @@ class Test_PdsLogger(unittest.TestCase):
         # force=False
         F = io.StringIO()
         with redirect_stdout(F):
-            L1.critical('CRITICAL')
+            L1.fatal('FATAL')
             for level in LEVELS:
                 L1.log(level, level, force=False)
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
-        self.assertEqual(result1, " | pds.quietlog || FATAL | CRITICAL\n"
-                                  " | pds.quietlog || FATAL | FATAL\n")
+        self.assertEqual(result1, " | pds.quietlog || CRITICAL | FATAL\n"
+                                  " | pds.quietlog || CRITICAL | CRITICAL\n")
 
     def test_exception(self):
         L = P.EasyLogger()
@@ -256,7 +257,7 @@ class Test_PdsLogger(unittest.TestCase):
 
     def test_logged_level(self):
         L = P.EasyLogger()
-        self.assertEqual(L._logged_level_name('FATAL'), 'FATAL')
+        self.assertEqual(L._logged_level_name('FATAL'), 'CRITICAL')
         self.assertEqual(L._logged_level_name(49), 'ERROR+9')
         self.assertEqual(L._logged_level_name(40), 'ERROR')
         self.assertEqual(L._logged_level_name(2), 'HIDDEN+1')
@@ -556,7 +557,7 @@ class Test_PdsLogger(unittest.TestCase):
                 L.fatal('fatal')
                 self.assertEqual(got_bigger(), (0, 0, 0, 0))
             result = F.getvalue()
-            self.assertIn('FATAL', result)
+            self.assertIn('CRITICAL', result)
 
             for handler in handlers:
                 handler.close()
@@ -564,3 +565,53 @@ class Test_PdsLogger(unittest.TestCase):
         finally:
             shutil.rmtree(dirpath)
             pass
+
+    def test_loggererror(self):
+        err = LoggerError('message')
+        self.assertEqual(str(err), 'message')
+        err.level = 30
+        err.force = False
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'message')
+        err2.level = 30
+        err2.force = False
+        err2.stacktrace = False
+
+        err = LoggerError('message', 'filepath', level='debug', force=True)
+        self.assertEqual(str(err), 'message: filepath')
+        err.level = 10
+        err.force = True
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'message: filepath')
+        err2.level = 10
+        err2.force = True
+        err2.stacktrace = False
+
+        err1 = ValueError('this is a ValueError')
+        err = LoggerError(err1, level=25)
+        self.assertEqual(str(err), 'ValueError(this is a ValueError)')
+        err.level = 25
+        err.force = False
+        err.stacktrace = False
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'ValueError(this is a ValueError)')
+        err2.level = 25
+        err2.force = False
+        err2.stacktrace = False
+
+        err = LoggerError(err1, 'filepath', stacktrace=True)
+        self.assertEqual(str(err), 'ValueError(this is a ValueError): filepath')
+        err.level = 30
+        err.force = False
+        err.stacktrace = True
+
+        err2 = LoggerError(err)
+        self.assertEqual(str(err2), 'ValueError(this is a ValueError): filepath')
+        err2.level = 30
+        err2.force = False
+        err2.stacktrace = True
