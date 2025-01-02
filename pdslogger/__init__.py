@@ -685,15 +685,16 @@ class PdsLogger(logging.Logger):
         else:
             _DEFAULT_PARENT_NAME = parent.rstrip('.')
 
-    def get_children(self):
-        """The set of child PdsLoggers of this PdsLogger."""
+    if sys.version_info >= (3, 12):
+        def get_children(self):
+            """The set of child PdsLoggers of this PdsLogger."""
 
-        children = self._logger.getChildren()
-        return {PdsLogger.as_pdslogger(child) for child in children}
+            children = self._logger.getChildren()
+            return {PdsLogger.as_pdslogger(child) for child in children}
 
-    def getChildren(self):
-        """Alternative name for get_children()."""
-        return self.get_children()
+        def getChildren(self):
+            """Alternative name for get_children()."""
+            return self.get_children()
 
     @staticmethod
     def _full_logname(logname, parent=None):

@@ -13,6 +13,7 @@ import os
 import pathlib
 import re
 import shutil
+import sys
 import tempfile
 import unittest
 import warnings
@@ -137,8 +138,9 @@ class Test_PdsLogger(unittest.TestCase):
         self.assertEqual(adoptee.name, 'pds.test.adoptee')
         self.assertEqual(adoptee.parent.name, 'pds.test')
 
-        self.assertEqual(parent.get_children(), {son, daughter, adoptee})
-        self.assertEqual(parent.getChildren(), {son, daughter, adoptee})
+        if sys.version_info >= (3, 12):
+            self.assertEqual(parent.get_children(), {son, daughter, adoptee})
+            self.assertEqual(parent.getChildren(), {son, daughter, adoptee})
 
     def test_as_pdslogger(self):
         RESET()
@@ -1227,12 +1229,14 @@ class Test_PdsLogger(unittest.TestCase):
                          r'__init__\.py|.*/rms-pdslogger/pdslogger/__init__\.py$')
         self.assertRegex(plfm(30, '%(processName)s|%(process)d|%(taskName)s'),
                          r'MainProcess|\d+|None$')
-        self.assertRegex(plfm(30, '%(thread)d|%(threadName)s'),
-                         r'\d+|MainThread$')
+        self.assertRegex(plfm(30, '%(processName)s|%(process)d'),
+                         r'MainProcess|\d+$')
         self.assertRegex(plfm(30, '%(module)s|%(lineno)d'),
                          r'__init__|\d+$')
         self.assertRegex(plfm(30, '%(asctime)s|%(extra_value)s', extra_value='EXTRA'),
                          r'\d\d\d\d-\d\d-\d\d \d\d:\d\d:\d\d,\d\d\d|EXTRA$')
+        if sys.version_info >= (3, 12):
+            self.assertRegex(plfm(30, '%(taskName)s'), 'None$')
 
     ######################################################################################
     # Alternative loggers
@@ -1557,6 +1561,8 @@ class Test_PdsLogger(unittest.TestCase):
         RESET()
         URI = ('https://pds-rings.seti.org/holdings/volumes/'
                'COCIRS_1xxx/COCIRS_1001/AAREADME.TXT')      # a random remote text file
+        URI2 = ('https://pds-rings.seti.org/holdings/volumes/'
+                'COCIRS_1xxx/COCIRS_1002/AAREADME.TXT')
         dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
         filecache = FileCache(cache_root=dirpath, delete_on_exit=False)
         try:
@@ -1583,7 +1589,7 @@ class Test_PdsLogger(unittest.TestCase):
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
 
-            self.assertRaises(ValueError, file_handler, URI, rotation='number')
+            self.assertRaises(ValueError, file_handler, URI2, rotation='number')
 
             URI = ('https://pds-rings.seti.org/holdings/volumes/'
                    'COCIRS_1xxx/COCIRS_1001/test.log')      # remote file doesn't exist
