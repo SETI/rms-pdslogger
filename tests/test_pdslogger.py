@@ -1559,8 +1559,6 @@ class Test_PdsLogger(unittest.TestCase):
         RESET()
         URI = ('https://pds-rings.seti.org/holdings/volumes/'
                'COCIRS_1xxx/COCIRS_1001/AAREADME.TXT')      # a random remote text file
-        URI2 = ('https://pds-rings.seti.org/holdings/volumes/'
-                'COCIRS_1xxx/COCIRS_1002/AAREADME.TXT')
         dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
         filecache = FileCache(cache_root=dirpath, delete_on_exit=False)
         try:
@@ -1587,7 +1585,7 @@ class Test_PdsLogger(unittest.TestCase):
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
 
-            self.assertRaises(ValueError, file_handler, URI2, rotation='number')
+            self.assertRaises(ValueError, file_handler, URI, rotation='number')
 
             URI = ('https://pds-rings.seti.org/holdings/volumes/'
                    'COCIRS_1xxx/COCIRS_1001/test.log')      # remote file doesn't exist
