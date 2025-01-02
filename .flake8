@@ -12,6 +12,9 @@ extend-ignore =
 
 per-file-ignores =
 
+    # E202 Whitespace before ')'
+    test_pdslogger.py: E202
+
 # E111 Indentation is not a multiple of four
 # E114 Indentation is not a multiple of four (comment)
 # E115 Expected an indented block (comment)

@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.abspath('..'))
 
 project = 'pdslogger'
-copyright = '2024, PDS Ring-Moon Systems Node'
+copyright = '2024-2025, PDS Ring-Moon Systems Node'
 author = 'PDS Ring-Moon Systems Node'
 
 # -- General configuration ---------------------------------------------------
