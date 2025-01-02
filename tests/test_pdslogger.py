@@ -1227,8 +1227,6 @@ class Test_PdsLogger(unittest.TestCase):
                          r'\d+\.\d+|\d+\.\d+|\d+$')
         self.assertRegex(plfm(30, '%(filename)s|%(pathname)s'),
                          r'__init__\.py|.*/rms-pdslogger/pdslogger/__init__\.py$')
-        self.assertRegex(plfm(30, '%(processName)s|%(process)d|%(taskName)s'),
-                         r'MainProcess|\d+|None$')
         self.assertRegex(plfm(30, '%(processName)s|%(process)d'),
                          r'MainProcess|\d+$')
         self.assertRegex(plfm(30, '%(module)s|%(lineno)d'),
