@@ -21,9 +21,9 @@ You create a new level in the hierarchy with :meth:`~PdsLogger.open` and close t
         # Write log messages here
 
 to close the newly-opened section of the log automatically. A specific handler can be
-assigned to the :class:`PdsLogger` as part of the :meth:`~PdsLogger.open` call and it
-will automatically be removed upon closing. Use this feature, for example, to obtain
-separate log files for individual tasks or when processing a sequence of individual files.
+assigned to the :class:`PdsLogger` as part of the :meth:`~PdsLogger.open` call and it will
+automatically be removed upon closing. Use this feature, for example, to obtain separate
+log files for individual tasks or when processing a sequence of individual files.
 
 The constructor allows the user to create additional error categories beyond the standard
 ones named "`debug`", "`info`", "`warning`", etc. Each category can be assigned its own
@@ -53,10 +53,10 @@ messages will still be tracked. At the end of the log, a tally of the messages a
 with each alias is printed, including the number suppressed if the limit was exceeded.
 
 :class:`PdsLogger` supports a rich set of formatting options for the log records, which
-can be specified in the constructor or by using :meth:`~PdsLogger.set_format`. By
-default, each log record automatically includes a time tag, log name, level, text message,
-and optional file path. Also, use :meth:`~PdsLogger.add_root` and related methods to
-exercise more control over how file paths appear.
+can be specified in the constructor or by using :meth:`~PdsLogger.set_format`. By default,
+each log record automatically includes a time tag, log name, level, text message, and
+optional file path. Also, use :meth:`~PdsLogger.add_root` and related methods to exercise
+more control over how file paths appear.
 
 Use :meth:`~PdsLogger.log` to log a message or else level-specific methods called
 :meth:`~PdsLogger.debug`, :meth:`~PdsLogger.info`, :meth:`~PdsLogger.warning`, etc. Each
@@ -81,14 +81,14 @@ Simple tools are also provided to create handlers to assign to a :class:`PdsLogg
 * :meth:`info_handler`, :meth:`~PdsLogger.warnings_handler`, and
   :meth:`~PdsLogger.error_handler` are simpler versions of the above, in which the level
   of message logging is implied.
-* :meth:`stream_handler` is a function that creates handlers to write to an I/O
-  stream such as ``sys.stdout`` or ``sys.stderr``.
+* :meth:`stream_handler` is a function that creates handlers to write to an I/O stream
+  such as ``sys.stdout`` or ``sys.stderr``.
 * ``STDOUT_HANDLER`` is a pre-defined handler that prints all output to the terminal.
 * ``NULL_HANDLER`` is a pre-defined handler that suppresses all output.
 
-Note that a PdsLogger will print message to the terminal if no handler has been assigned
-to it. As a result, if you really wish not to see any messages, you must assign it the
-``NULL_HANDLER``.
+Note that a :class:`PdsLogger` will print message to the terminal if no handler has been
+assigned to it. As a result, if you really wish not to see any messages, you must assign
+it the ``NULL_HANDLER``.
 
 In the Macintosh Finder, log files are color-coded by the most severe message encountered
 within the file: green for "info", yellow for warnings, red for errors, and violet for
@@ -125,7 +125,7 @@ except ImportError:     # pragma: no cover
 
 try:
     from ._version import __version__
-except ImportError:
+except ImportError:  # pragma: no cover
     __version__ = 'Version unspecified'
 
 _TIME_FMT = '%Y-%m-%d %H:%M:%S.%f'
@@ -685,7 +685,7 @@ class PdsLogger(logging.Logger):
         else:
             _DEFAULT_PARENT_NAME = parent.rstrip('.')
 
-    if sys.version_info >= (3, 12):
+    if sys.version_info >= (3, 12):  # pragma: no cover
         def get_children(self):
             """The set of child PdsLoggers of this PdsLogger."""
 
@@ -1116,7 +1116,7 @@ class PdsLogger(logging.Logger):
 
     # Alternative names
     is_enabled_for = isEnabledFor
-    get_fffective_level = getEffectiveLevel
+    get_effective_level = getEffectiveLevel
     add_filter = addFilter
     remove_filter = removeFilter
     make_record = makeRecord
@@ -2297,10 +2297,10 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
 
     def unlink_carefully(path):
         try:
-            logpath.unlink()
+            path.unlink()
         except (NotImplementedError, FileNotFoundError):
-            if logpath.get_local_path().exists():
-                logpath.get_local_path().unlink()           # pragma: no cover
+            if path.get_local_path().exists():
+                path.get_local_path().unlink()           # pragma: no cover
 
     if rotation not in {'none', 'number', 'midnight', 'ymd', 'ymdhms', 'replace'}:
         raise ValueError(f'Unrecognized rotation for log file {logpath}: "{rotation}"')

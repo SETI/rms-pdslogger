@@ -1559,8 +1559,7 @@ class Test_PdsLogger(unittest.TestCase):
         RESET()
         URI = ('https://pds-rings.seti.org/holdings/volumes/'
                'COCIRS_1xxx/COCIRS_1001/AAREADME.TXT')      # a random remote text file
-        dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
-        filecache = FileCache(cache_root=dirpath, delete_on_exit=False)
+        filecache = FileCache(cache_name=None)
         try:
             pl = PdsLogger.get_logger('cirs')
             fcpath = FCPath(URI, filecache=filecache)
@@ -1585,7 +1584,7 @@ class Test_PdsLogger(unittest.TestCase):
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
 
-            self.assertRaises(ValueError, file_handler, URI, rotation='number')
+            self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
 
             URI = ('https://pds-rings.seti.org/holdings/volumes/'
                    'COCIRS_1xxx/COCIRS_1001/test.log')      # remote file doesn't exist
@@ -1595,7 +1594,7 @@ class Test_PdsLogger(unittest.TestCase):
             fcpath.get_local_path().touch()
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
         finally:
-            shutil.rmtree(dirpath)
+            filecache.delete_cache()
 
     def test_stream_handler(self):
         RESET()
