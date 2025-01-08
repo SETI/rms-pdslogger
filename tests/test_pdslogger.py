@@ -1383,9 +1383,11 @@ class Test_PdsLogger(unittest.TestCase):
     def test_file_handlers(self):
         RESET()
         dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
+        info = None
         warn = None
         error = None
         debug = None
+        handler = None
         try:
             info = P.info_handler(dirpath)
             self.assertEqual(info.baseFilename, str(dirpath / 'INFO.log'))
@@ -1562,12 +1564,16 @@ class Test_PdsLogger(unittest.TestCase):
                 self.assertRaises(ValueError, P.file_handler, dirpath / 'test.log',
                                   rotation='whatever')
         finally:
+            if info:
+                info.close()
             if debug:
                 debug.close()
             if warn:
                 warn.close()
             if error:
                 error.close()
+            if handler:
+                handler.close()
             shutil.rmtree(dirpath)
 
     def test_fcpath(self):
