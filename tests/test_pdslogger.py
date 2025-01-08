@@ -1120,6 +1120,7 @@ class Test_PdsLogger(unittest.TestCase):
         logger = logging.getLogger('logger')
         L = PdsLogger.as_pdslogger(logger)
         dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
+        handler = None
         try:
             logpath = dirpath / 'test.log'
             handler = P.file_handler(logpath, rotation='replace')
@@ -1149,6 +1150,8 @@ class Test_PdsLogger(unittest.TestCase):
                                       r'ZeroDivisionError: .*\n'
                                       r'MORE\n')
         finally:
+            if handler:
+                handler.close()
             shutil.rmtree(dirpath)
 
     ######################################################################################
@@ -1380,6 +1383,9 @@ class Test_PdsLogger(unittest.TestCase):
     def test_file_handlers(self):
         RESET()
         dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
+        warn = None
+        error = None
+        debug = None
         try:
             info = P.info_handler(dirpath)
             self.assertEqual(info.baseFilename, str(dirpath / 'INFO.log'))
@@ -1406,7 +1412,6 @@ class Test_PdsLogger(unittest.TestCase):
             warn = P.warning_handler(dirpath, rotation='number')
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
             self.assertTrue((dirpath / 'WARNINGS_v101.log').exists())
-            warn.close()
 
             error = P.error_handler(dirpath, rotation='ymd')
             pattern = dirpath.as_posix() + '/' + r'ERRORS_\d\d\d\d-\d\d-\d\d\.log'
@@ -1557,6 +1562,12 @@ class Test_PdsLogger(unittest.TestCase):
                 self.assertRaises(ValueError, P.file_handler, dirpath / 'test.log',
                                   rotation='whatever')
         finally:
+            if debug:
+                debug.close()
+            if warn:
+                warn.close()
+            if error:
+                error.close()
             shutil.rmtree(dirpath)
 
     def test_fcpath(self):
@@ -1564,6 +1575,7 @@ class Test_PdsLogger(unittest.TestCase):
         URI = ('https://pds-rings.seti.org/holdings/volumes/'
                'COCIRS_1xxx/COCIRS_1001/AAREADME.TXT')      # a random remote text file
         filecache = FileCache(cache_name=None)
+        handler = None
         try:
             pl = PdsLogger.get_logger('cirs')
             fcpath = FCPath(URI, filecache=filecache)
@@ -1598,6 +1610,8 @@ class Test_PdsLogger(unittest.TestCase):
             fcpath.get_local_path().touch()
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
         finally:
+            if handler:
+                handler.close()
             filecache.delete_cache()
 
     def test_stream_handler(self):
