@@ -7,10 +7,9 @@ name = "rms-pdslogger"
 dynamic = ["version"]
 description = "Extension to the Python logging module"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    "numpy",
-    "pyparsing",
+    "rms-filecache",
     "xattr; platform_system!='Windows'"
 ]
 license = {text = "Apache-2.0"}
@@ -25,8 +24,6 @@ classifiers = [
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Topic :: Utilities",
   "License :: OSI Approved :: Apache Software License",
-  "Programming Language :: Python :: 3.8",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",

@@ -6,4 +6,4 @@
     :members:
     :undoc-members:
     :special-members:
-    :exclude-members: __dict__, __hash__, __module__, __weakref__
+    :exclude-members: __annotations__, __dict__, __hash__, __module__, __weakref__
