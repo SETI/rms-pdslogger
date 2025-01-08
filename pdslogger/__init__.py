@@ -917,7 +917,8 @@ class PdsLogger(logging.Logger):
 
                 # A FileHandler constructed using file_handler() will have an FCPath
                 fcpath = handler.fcpath if hasattr(handler, 'fcpath') else None
-                abspath = str(Path(handler.baseFilename).expanduser().resolve())
+                abspath = str(Path(handler.baseFilename).expanduser()
+                              .absolute().resolve())
                 if abspath in self._handler_by_local_abspath:
                     continue                                # log file already in use
                 self._handler_by_local_abspath[abspath] = handler
@@ -980,12 +981,12 @@ class PdsLogger(logging.Logger):
             # Identify an FCPath and abspath if any
             if hasattr(handler, 'fcpath'):
                 fcpath = handler.fcpath
-                abspath = str(fcpath.get_local_path().expanduser().resolve())
+                abspath = str(fcpath.get_local_path().expanduser().absolute().resolve())
             elif isinstance(path, FCPath):
                 fcpath = path
-                abspath = str(fcpath.get_local_path().expanduser().resolve())
+                abspath = str(fcpath.get_local_path().expanduser().absolute().resolve())
             else:
-                abspath = str(Path(path).expanduser().resolve())
+                abspath = str(Path(path).expanduser().absolute().resolve())
                 fcpath = self._fcpath_by_local_abspath.get(abspath, None)
 
             # Check an abspath against the list of handlers
@@ -2017,7 +2018,7 @@ class PdsLogger(logging.Logger):
         if not filepath:
             return ''
 
-        abspath = str(Path(filepath).resolve())
+        abspath = str(Path(filepath).absolute().resolve())
         for root_ in self._roots:
             if filepath.startswith(root_) and filepath != root_:
                 return filepath[len(root_):]
@@ -2331,7 +2332,7 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
                     if match:
                         max_version = max(int(match.group(1)), max_version)
             except NotImplementedError:
-                scheme = str(logpath).partition(':')[0]
+                scheme = str(logpath).partition('://')[0]
                 raise ValueError('numbered rotation is not supported for remote scheme '
                                  f'"{scheme}:"')
 
@@ -2343,7 +2344,7 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
             try:
                 versioned_logpath.upload()
             except NotImplementedError:                     # pragma: no cover
-                scheme = str(logpath).partition(':')[0]
+                scheme = str(logpath).partition('://')[0]
                 raise ValueError('numbered rotation is not supported for remote scheme '
                                  f'"{scheme}:"')
 

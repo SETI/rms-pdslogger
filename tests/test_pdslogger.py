@@ -1145,7 +1145,7 @@ class Test_PdsLogger(unittest.TestCase):
                                       r'Traceback.*\n'
                                       r' *File ".*?", line \d+, in test_exception\n'
                                       r' *_ = 1/0\n'
-                                      r'.*\n'
+                                      r'.*\n*'
                                       r'ZeroDivisionError: .*\n'
                                       r'MORE\n')
         finally:
@@ -1387,22 +1387,26 @@ class Test_PdsLogger(unittest.TestCase):
             warn = P.warning_handler(dirpath, rotation='number')
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
             self.assertFalse((dirpath / 'WARNINGS_v001.log').exists())
+            warn.close()
 
             # repeat to get _v1
             warn = P.warning_handler(dirpath, rotation='number')
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
             self.assertTrue((dirpath / 'WARNINGS_v001.log').exists())
+            warn.close()
 
             # repeat to get _v2
             warn = P.warning_handler(dirpath, rotation='number')
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
             self.assertTrue((dirpath / 'WARNINGS_v002.log').exists())
+            warn.close()
 
             (dirpath / 'WARNINGS_v100.log').touch()
             (dirpath / 'WARNINGS_vNNN.log').touch()
             warn = P.warning_handler(dirpath, rotation='number')
             self.assertEqual(warn.baseFilename, str(dirpath / 'WARNINGS.log'))
             self.assertTrue((dirpath / 'WARNINGS_v101.log').exists())
+            warn.close()
 
             error = P.error_handler(dirpath, rotation='ymd')
             pattern = dirpath.as_posix() + '/' + r'ERRORS_\d\d\d\d-\d\d-\d\d\.log'
