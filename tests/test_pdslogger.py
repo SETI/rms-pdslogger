@@ -1151,7 +1151,7 @@ class Test_PdsLogger(unittest.TestCase):
                                       r'MORE\n')
         finally:
             if handler:
-                handler.close()
+                handler.close()  # Required for Windows to be able to delete the tree
             shutil.rmtree(dirpath)
 
     ######################################################################################
@@ -1565,7 +1565,7 @@ class Test_PdsLogger(unittest.TestCase):
                                   rotation='whatever')
         finally:
             if info:
-                info.close()
+                info.close()  # Required for Windows to be able to delete the tree
             if debug:
                 debug.close()
             if warn:
@@ -1617,7 +1617,7 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
         finally:
             if handler:
-                handler.close()
+                handler.close()  # Required for Windows to be able to delete the tree
             filecache.delete_cache()
 
     def test_stream_handler(self):

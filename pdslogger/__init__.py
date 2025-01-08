@@ -577,12 +577,10 @@ class PdsLogger(logging.Logger):
         if logger.name in _LOOKUP:
             return _LOOKUP[logger.name]
 
-        print('LOGGER NAME', logger.name)
         new_logger = PdsLogger.get_logger(logger.name, parent='', level=logger.level,
                                           timestamps=False, lognames=False, pid=False,
                                           indent=False, levelnames=False,
                                           blanklines=False)
-        print('HANDLERS', logger.handlers)
         new_logger.add_handler(*logger.handlers)
         new_logger._FROM_LOGGER = True
         return new_logger
@@ -668,7 +666,6 @@ class PdsLogger(logging.Logger):
     def parent(self):
         """The parent of this PdsLogger."""
         parent_ = self._logger.parent
-        print('XXX PARENT IS', parent_)
         return None if parent_ is None else PdsLogger.as_pdslogger(parent_)
 
     @staticmethod
@@ -919,7 +916,6 @@ class PdsLogger(logging.Logger):
             if isinstance(handler, logging.FileHandler):
 
                 # A FileHandler constructed using file_handler() will have an FCPath
-                print('BASEFILENAME', handler.baseFilename)
                 fcpath = handler.fcpath if hasattr(handler, 'fcpath') else None
                 abspath = str(Path(handler.baseFilename).expanduser()
                               .absolute().resolve())
