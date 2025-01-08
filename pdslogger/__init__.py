@@ -666,6 +666,7 @@ class PdsLogger(logging.Logger):
     def parent(self):
         """The parent of this PdsLogger."""
         parent_ = self._logger.parent
+        print('XXX PARENT IS', parent_)
         return None if parent_ is None else PdsLogger.as_pdslogger(parent_)
 
     @staticmethod
