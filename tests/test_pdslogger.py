@@ -838,7 +838,9 @@ class Test_PdsLogger(unittest.TestCase):
 
         finally:
             if handler:
-                handler.close()  # Required for Windows to be able to delete the tree
+                handler.close()   # Required for Windows to be able to delete the tree
+            if handler2:
+                handler2.close()  # Required for Windows to be able to delete the tree
             shutil.rmtree(dirpath)
 
     ######################################################################################
