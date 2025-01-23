@@ -883,7 +883,7 @@ class PdsLogger(logging.Logger):
         """Alternative name for has_handlers."""
         return self.has_handlers()
 
-    def add_handler(self, *handlers):
+    def add_handler(self, *handlers, local=None):
         """Add one or more handlers to this PdsLogger at the current location in the
         hierarchy.
 
@@ -894,6 +894,11 @@ class PdsLogger(logging.Logger):
             *handlers (logging.Handler, str, path, or FCPath):
                 One or more handlers. If a file path is provided, it is used by
                 :meth:`file_handler` to construct a new FileHandler.
+            local (bool, optional):
+                True to add this as a local handler, which will be removed when
+                :meth:`~PdsLogger.close` is called; False to treat it as a global handler,
+                which is preserved until explicitly removed. Outside any call to
+                :meth:`~PdsLogger.open`, all handlers are global.
         """
 
         # EasyLogger and its subclasses do not accept handlers; warn
@@ -903,37 +908,38 @@ class PdsLogger(logging.Logger):
                 self._warned_about_handlers = True
             return
 
+        if local is None:
+            local = self._get_depth() > 0
+
         # Add each new handler if its absolute path is unique
-        for handler in list(handlers):          # work from a copy just in case
-            if handler in self._handlers:       # no duplicate handlers
+        for handler in list(handlers):                  # work from a copy just in case
+            if handler in self._handlers:               # no duplicate handlers
                 continue
 
             # Convert a file path to a handler
             if isinstance(handler, (str, Path, FCPath)):
                 handler = file_handler(handler)
 
-            # Save FileHandler in the global dictionary by absolute path string
+            # Save a FileHandler in the global dictionary by absolute path string
             if isinstance(handler, logging.FileHandler):
-
-                # A FileHandler constructed using file_handler() will have an FCPath
-                fcpath = handler.fcpath if hasattr(handler, 'fcpath') else None
                 abspath = str(Path(handler.baseFilename).expanduser()
                               .absolute().resolve())
                 if abspath in self._handler_by_local_abspath:
-                    continue                                # log file already in use
+                    continue                            # log file already in use
+
                 self._handler_by_local_abspath[abspath] = handler
-                self._log_file_summaries[abspath] = self.summarize()
+                self._log_file_summaries[abspath] = self.summarize(local=local)
 
                 # Save a remote FCPath based on retrieved name so we can close it when the
                 # handler is removed
-                if fcpath and not fcpath.is_local():
-                    self._fcpath_by_local_abspath[abspath] = fcpath
+                if hasattr(handler, 'fcpath') and not handler.fcpath.is_local():
+                    self._fcpath_by_local_abspath[abspath] = handler.fcpath
 
-            self._local_handlers[-1].append(handler)
             self._handlers.append(handler)
+            self._local_handlers[-1 if local else 0].append(handler)
             self._logger.addHandler(handler)
 
-    def addHandler(self, *handlers):
+    def addHandler(self, *handlers, local=False):
         """Alternative name for add_handler()."""
         self.add_handler(*handlers)
 
@@ -953,7 +959,7 @@ class PdsLogger(logging.Logger):
             try:
                 self._handlers.remove(handler)
             except ValueError:
-                pass
+                return
 
             for local_list in self._local_handlers:
                 if handler in local_list:
@@ -994,12 +1000,13 @@ class PdsLogger(logging.Logger):
             if not handler:
                 continue                                    # abspath not in use
 
-            # Remove the handler
-            remove_one_handler(handler)
-
             # Manage the files
-            new_summary = self.summarize()
+            local = handler not in self._local_handlers[0]
+            new_summary = self.summarize(local=local)
             old_summary = self._log_file_summaries[abspath]
+
+            # Remove the handler from the lists
+            remove_one_handler(handler)
 
             # Remove the abspath from the dictionaries
             del self._handler_by_local_abspath[abspath]
@@ -1022,11 +1029,11 @@ class PdsLogger(logging.Logger):
                     # If the xattr module has been imported on a Mac, set the color of
                     # the log file to indicate outcome.
                     try:
-                        if new_summary[0] - old_summary[0]:
+                        if new_summary[0] - old_summary[0] > 0:
                             finder_colors.set_color(abspath, 'violet')
-                        elif new_summary[1] - old_summary[1]:
+                        elif new_summary[1] - old_summary[1] > 0:
                             finder_colors.set_color(abspath, 'red')
-                        elif new_summary[2] - old_summary[2]:
+                        elif new_summary[2] - old_summary[2] > 0:
                             finder_colors.set_color(abspath, 'yellow')
                         else:
                             finder_colors.set_color(abspath, 'green')
@@ -1055,8 +1062,8 @@ class PdsLogger(logging.Logger):
         self.remove_all_handlers()          # pragma: no cover
 
     def replace_handler(self, *handlers):
-        """Replace the existing handlers with one or more new handlers at the current
-        tier in the logging hierarchy.
+        """Replace the existing local handlers with one or more new handlers at the
+        current tier in the logging hierarchy.
 
         Parameters:
             *handlers (str, path, FCPath, or logging.Handler):
@@ -1173,6 +1180,10 @@ class PdsLogger(logging.Logger):
                 not being used as a context manager, this object can be ignored.
         """
 
+        # Check the hierarchy depth
+        if self._get_depth() >= self._maxdepth:
+            raise ValueError('Maximum logging hierarchy depth has been reached')
+
         # Format the title + filepath
         if not filepath and len(args) == 1 and not _message_uses_args(title):
             filepath = args[0]
@@ -1183,7 +1194,7 @@ class PdsLogger(logging.Logger):
         if filepath:
             title += ': ' + self._logged_filepath(filepath)
 
-        # Format the level name
+        # Determine the new logging level
         if level is None:
             new_level = self._min_levels[-1]
         elif isinstance(level, str):
@@ -1191,22 +1202,16 @@ class PdsLogger(logging.Logger):
         else:
             new_level = level
 
-        # Write header message at current tier
-        header_logged = header_level >= self._min_levels[-1] or force
-        if header_logged:
-            self._logger_log(header_level, self._logged_text('HEADER', title))
+        # Determine whether to log the header
+        header_logged = (header_level >= min(self._min_levels[-1], new_level)) or force
 
-        # Increment the hierarchy depth
-        if self._get_depth() >= self._maxdepth:
-            raise ValueError('Maximum logging hierarchy depth has been reached')
+        # Update the tier-specific info
+        self._min_levels.append(new_level)
+        self.set_level(new_level)
 
-        self._titles.append((title, args, kwargs, header_logged))
         self._start_times.append(datetime.datetime.now())
-
-        # Update the handlers
         self._local_handlers.append([])
-        handlers = handler if isinstance(handler, (list, tuple)) else [handler]
-        self.add_handler(*handlers)
+        self._titles.append((title, args, kwargs, header_logged))
 
         # Set the level-specific limits
         self._limits_by_name.append(self._limits_by_name[-1].copy())
@@ -1223,16 +1228,24 @@ class PdsLogger(logging.Logger):
         self._counters_by_name.append(defaultdict(int))
         self._suppressed_by_name.append(defaultdict(int))
 
-        # Update the logging level
-        self._min_levels.append(new_level)
-        self.set_level(new_level)
+        # Update the handlers
+        handlers = handler if isinstance(handler, (list, tuple)) else [handler]
+        self.add_handler(*handlers, local=True)
+
+        # Write header message
+        if header_logged:
+            self._logger_log(header_level, self._logged_text('HEADER', title, shift=-1))
 
         # For use of open() as a context manager
         return PdsLogger._Closer(self)
 
-    def summarize(self):
+    def summarize(self, local=True):
         """Return a tuple describing the number of logged messages by category in the
         current tier of the hierarchy.
+
+        Parameters:
+            local (bool, optional): True for the totals at this depth in the hierarchy;
+                False for the global totals since this PdsLogger was created.
 
         Returns:
             tuple: (number of critical errors, number of errors, number of warnings, total
@@ -1244,17 +1257,20 @@ class PdsLogger(logging.Logger):
         errors = 0
         warnings = 0
         total = 0
-        for name, count in self._counters_by_name[-1].items():
-            level = self._level_by_name[name]
-            count += self._suppressed_by_name[-1][name]
-            if level >= CRITICAL:
-                criticals += count
-            elif level >= ERROR:
-                errors += count
-            elif level >= WARNING:
-                warnings += count
 
-            total += count
+        indices = (-1,) if local else tuple(range(len(self._counters_by_name)))
+        for indx in indices:
+            for dict_ in (self._counters_by_name[indx], self._suppressed_by_name[indx]):
+                for name, count in dict_.items():
+                    level = self._level_by_name[name]
+                    if level >= CRITICAL:
+                        criticals += count
+                    elif level >= ERROR:
+                        errors += count
+                    elif level >= WARNING:
+                        warnings += count
+
+                    total += count
 
         return (criticals, errors, warnings, total)
 
@@ -1318,18 +1334,28 @@ class PdsLogger(logging.Logger):
 
                 messages += [(level, note)]
 
-        # Transfer the totals to the hierarchy tier above
+        # Transfer the totals to the logger tier above
         if len(self._counters_by_name) > 1:
             for name, count in self._counters_by_name[-1].items():
                 self._counters_by_name[-2][name] += count
                 self._suppressed_by_name[-2][name] += self._suppressed_by_name[-1][name]
 
         # Determine values to return
-        (criticals, errors, warnings, total) = self.summarize()
+        (criticals, errors, warnings, total) = self.summarize(local=True)
 
-        # Close the handlers at this level
-        for handler in list(self._local_handlers[-1]):  # work from a copy of the list
-            self.remove_handler(handler)
+        # Log the summary
+        if header_logged:
+            self._logger_log(header_level,
+                             self._logged_text('SUMMARY', 'Completed: ' + title,
+                                               shift=-1),
+                             *title_args, **title_kwargs)
+            for level, note in messages:
+                if level >= min_level_for_log:
+                    self._logger_log(header_level, self._logged_text('SUMMARY', note,
+                                                                     shift=-1))
+
+        # Remove any handlers at this tier
+        self.remove_handler(*self._local_handlers[-1])
 
         # Back up one level in the hierarchy
         if len(self._titles) > 1:
@@ -1348,24 +1374,14 @@ class PdsLogger(logging.Logger):
         if self._logger and self._min_levels:
             self._logger.setLevel(self._min_levels[-1])
 
-        # Log the summary at the outer tier
-        if header_logged:
-            self._logger_log(header_level,
-                             self._logged_text('SUMMARY', 'Completed: ' + title),
-                             *title_args, **title_kwargs)
-            for level, note in messages:
-                if level >= min_level_for_log:
-                    self._logger_log(header_level, self._logged_text('SUMMARY', note))
-
-            # Blank line
-            if self._blanklines:
-                self.blankline(header_level)
+        # Add a blank line (but not in handlers that were just closed)
+        if header_logged and self._blanklines:
+            self.blankline(header_level)
 
         return (criticals, errors, warnings, total)
 
     def message_count(self, name):
-        """Return the number of messages generated at this named level since this last
-        open().
+        """The number of messages generated at this named level since this last open().
 
         Parameters:
             name (str): Name of a level.
@@ -1454,7 +1470,7 @@ class PdsLogger(logging.Logger):
             text = self._logged_text(level_name_for_log, message, filepath)
             self._logger_log(level_for_log, text, *args, **kwargs)
             self._counters_by_name[-1][level_name_for_count] += 1
-            if not force:
+            if not force:   # Log a suppression message next time this level is suppressed
                 self._suppressions_logged.discard(level_name_for_count)
 
         # Otherwise...
@@ -1955,7 +1971,7 @@ class PdsLogger(logging.Logger):
     # Message formatting utilities
     ######################################################################################
 
-    def _logged_text(self, level, message, filepath=''):
+    def _logged_text(self, level, message, filepath='', *, shift=0):
         """Construct a record to send to the logger, including time tag, level indicator,
         etc., in the standardized format.
 
@@ -1964,6 +1980,8 @@ class PdsLogger(logging.Logger):
             message (str): Message text.
             filepath (str, Path, or FCPath, optional): File path to include in the
                 message.
+            shift (int, optional):
+                Number of characters by which to shift the indent.
 
         Returns:
             str: The full text of the log message.
@@ -1987,7 +2005,8 @@ class PdsLogger(logging.Logger):
         if self._indent:
             if parts:
                 parts[-1] = ' |'
-            parts += [self._get_depth() * '-', '| ']
+            dashes = max(0, self._get_depth() + shift)
+            parts += [dashes * '-', '| ']
 
         if self._levelnames:
             parts += [self._logged_level_name(level), ' | ']

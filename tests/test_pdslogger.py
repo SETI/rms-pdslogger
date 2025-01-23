@@ -794,6 +794,53 @@ class Test_PdsLogger(unittest.TestCase):
         L.remove_handler(STDOUT_HANDLER)
         self.assertFalse(L.has_handlers())
 
+        # add_handler with local=False
+        RESET()
+        pl = PdsLogger.get_logger('test')
+        pl.open('open')
+        pl.add_handler(STDOUT_HANDLER)
+        pl.add_handler(NULL_HANDLER, local=False)
+        self.assertEqual(len(pl.handlers), 2)
+        self.assertEqual(pl._local_handlers[0], [NULL_HANDLER])
+        self.assertEqual(pl._local_handlers[1], [STDOUT_HANDLER])
+        pl.close()
+        self.assertEqual(len(pl.handlers), 1)
+        self.assertEqual(pl._local_handlers[0], [NULL_HANDLER])
+
+        # Error counts by handler
+        L = PdsLogger.get_logger('test2')
+        dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
+        try:
+            logpath = dirpath / 'test1.log'
+            abspath = str(logpath.absolute())
+            handler = P.file_handler(logpath)
+            L.add_handler(handler)
+
+            for i in range(10):
+                L.info('info')
+            for i in range(20):
+                L.warning('warning')
+
+            logpath2 = dirpath / 'test2.log'
+            abspath2 = str(logpath2.absolute())
+            handler2 = P.file_handler(logpath2)
+            L.add_handler(handler2)
+            for i in range(30):
+                L.error('error')
+            for i in range(15):
+                L.fatal('fatal')
+
+            summary = L.summarize()
+            self.assertEqual(summary, (15, 30, 20, 75))
+
+            self.assertEqual(L._log_file_summaries[abspath], (0, 0, 0, 0))
+            self.assertEqual(L._log_file_summaries[abspath2], (0, 0, 20, 30))
+
+        finally:
+            handler.close()   # Required for Windows to be able to delete the tree
+            handler2.close()
+            shutil.rmtree(dirpath)
+
     ######################################################################################
     # More logger.Logging API
     ######################################################################################
@@ -967,6 +1014,24 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertEqual(result, '| HEADER | Tier 1\n'
                                      '| SUMMARY | Completed: Tier 1\n'
                                      '| SUMMARY | 0 DEBUG messages reported of 2 total\n')
+
+    def test_summarize(self):
+        RESET()
+
+        L = P.NullLogger()
+        for i in range(10):
+            L.info('info')
+        for i in range(20):
+            L.warning('warning')
+
+        L.open('open')
+        for i in range(30):
+            L.error('error')
+        for i in range(15):
+            L.fatal('fatal')
+
+        self.assertEqual(L.summarize(), (15, 30, 0, 45))
+        self.assertEqual(L.summarize(local=False), (15, 30, 20, 75))
 
     ######################################################################################
     # Logging methods
@@ -1469,6 +1534,10 @@ class Test_PdsLogger(unittest.TestCase):
                 self.assertEqual(got_bigger(), (1, 1, 0, 0))
 
                 L.remove_handler(warn)
+                self.assertEqual(len(L._handlers), 3)
+                self.assertEqual(len(L._local_handlers), 1)
+                self.assertEqual(len(L._local_handlers[0]), 3)
+
                 L.debug('debug')
                 self.assertEqual(got_bigger(), (1, 0, 0, 0))
                 L.info('info')
@@ -1478,9 +1547,12 @@ class Test_PdsLogger(unittest.TestCase):
                 L.error('error')
                 self.assertEqual(got_bigger(), (1, 1, 0, 1))
 
-                L.open('open')
-                L.add_handler(warn)
+                L.open('open', handler=warn)
                 self.assertEqual(got_bigger(), (1, 1, 0, 0))
+                self.assertEqual(len(L._handlers), 4)
+                self.assertEqual(len(L._local_handlers), 2)
+                self.assertEqual(len(L._local_handlers[0]), 3)
+                self.assertEqual(len(L._local_handlers[1]), 1)
 
                 L.debug('debug')
                 self.assertEqual(got_bigger(), (1, 0, 0, 0))
@@ -1491,9 +1563,43 @@ class Test_PdsLogger(unittest.TestCase):
                 L.error('error')
                 self.assertEqual(got_bigger(), (1, 1, 1, 1))
                 L.close()
+                self.assertEqual(got_bigger(), (1, 1, 0, 0))
 
                 L.warn('warn')
                 self.assertEqual(got_bigger(), (1, 1, 0, 0))
+
+                L.remove_handler(debug)
+                L.add_handler(warn)
+
+                L.open('open2')
+                self.assertEqual(got_bigger(), (0, 1, 0, 0))
+                self.assertEqual(len(L._handlers), 3)
+                self.assertEqual(len(L._local_handlers), 2)
+                self.assertEqual(len(L._local_handlers[0]), 3)
+                self.assertEqual(len(L._local_handlers[1]), 0)
+
+                L.add_handler(debug)
+                self.assertEqual(len(L._handlers), 4)
+                self.assertEqual(len(L._local_handlers[1]), 1)
+
+                L.debug('debug')
+                self.assertEqual(got_bigger(), (1, 0, 0, 0))
+                L.info('info')
+                self.assertEqual(got_bigger(), (1, 1, 0, 0))
+                L.warn('warn')
+                self.assertEqual(got_bigger(), (1, 1, 1, 0))
+                L.error('error')
+                self.assertEqual(got_bigger(), (1, 1, 1, 1))
+
+                L.close()
+                self.assertEqual(got_bigger(), (1, 1, 0, 0))
+
+                L.debug('debug')
+                self.assertEqual(got_bigger(), (0, 0, 0, 0))
+                L.info('info')
+                self.assertEqual(got_bigger(), (0, 1, 0, 0))
+                L.warn('warn')
+                self.assertEqual(got_bigger(), (0, 1, 1, 0))
 
             result = F.getvalue()
             self.assertEqual(result, '')
@@ -1587,12 +1693,9 @@ class Test_PdsLogger(unittest.TestCase):
             fcpath = FCPath(URI, filecache=filecache)
             handler = file_handler(fcpath)
             pl.add_handler(handler)
-            self.assertEqual(len(pl._fcpath_by_local_abspath), 1)
+            self.assertEqual(len(pl._handler_by_local_abspath), 1)
             pl.warning('This is a warning')
             pl.error('This is an error')
-            self.assertEqual(len(pl._fcpath_by_local_abspath), 1)
-            self.assertEqual(pl._fcpath_by_local_abspath[handler.baseFilename],
-                             handler.fcpath)
             self.assertEqual(len(pl._handler_by_local_abspath), 1)
             self.assertEqual(pl._handler_by_local_abspath[handler.baseFilename],
                              handler)
