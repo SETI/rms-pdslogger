@@ -1000,12 +1000,13 @@ class PdsLogger(logging.Logger):
             if not handler:
                 continue                                    # abspath not in use
 
-            # Remove the handler
-            remove_one_handler(handler)
-
             # Manage the files
-            new_summary = self.summarize()
+            local = handler not in self._local_handlers[0]
+            new_summary = self.summarize(local=local)
             old_summary = self._log_file_summaries[abspath]
+
+            # Remove the handler from the lists
+            remove_one_handler(handler)
 
             # Remove the abspath from the dictionaries
             del self._handler_by_local_abspath[abspath]
