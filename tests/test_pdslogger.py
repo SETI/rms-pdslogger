@@ -837,10 +837,8 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertEqual(L._log_file_summaries[abspath2], (0, 0, 20, 30))
 
         finally:
-            if handler:
-                handler.close()   # Required for Windows to be able to delete the tree
-            if handler2:
-                handler2.close()  # Required for Windows to be able to delete the tree
+            handler.close()   # Required for Windows to be able to delete the tree
+            handler2.close()
             shutil.rmtree(dirpath)
 
     ######################################################################################
