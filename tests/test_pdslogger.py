@@ -1216,7 +1216,6 @@ class Test_PdsLogger(unittest.TestCase):
                 handler.close()  # Required for Windows to be able to delete the tree
             shutil.rmtree(dirpath)
 
-
     def test_propagation(self):
         RESET()
         c_logger = PdsLogger.get_logger('a.b.c', parent='', levels={'whatever': 20})
