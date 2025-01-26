@@ -182,6 +182,8 @@ _DEFAULT_PARENT_NAME = 'pds'
 
 _ATEXIT = False     # changed to True during `atexit` cleanup
 
+BIGNUM = 2**63 - 1  # a very large integer
+
 ##########################################################################################
 # PdsLogger class
 ##########################################################################################
@@ -348,7 +350,7 @@ class PdsLogger(logging.Logger):
         self.set_level(level)
 
         self._input_limits = limits
-        self._limits_by_name = [defaultdict(lambda: -1)]        # pragma: no branch why??
+        self._limits_by_name = [defaultdict(lambda: BIGNUM)]    # pragma: no branch why??
         self._limits_by_name[-1].update(_DEFAULT_LIMITS_BY_NAME)
         for level_name, level_num in limits.items():
             self.set_limit(level_name, level_num)
@@ -371,8 +373,8 @@ class PdsLogger(logging.Logger):
 
     @staticmethod
     def get_logger(logname, *, parent=None, levels={}, limits={}, roots=[], level=None,
-                   timestamps=None, digits=6, lognames=None, pid=False, indent=None,
-                   levelnames=None, blanklines=True, colors=True, maxdepth=6):
+                   timestamps=None, digits=None, lognames=None, pid=None, indent=None,
+                   levelnames=None, blanklines=None, colors=None, maxdepth=None):
         """Return the current logger by this name if it already exists; otherwise,
         construct and return a new PdsLogger.
 
@@ -396,38 +398,49 @@ class PdsLogger(logging.Logger):
                 file path is in a single subdirectory tree on the volume.
             level (int or str, optional):
                 The minimum level or level name for a record to enter the log. By default,
-                this is the minimum logging level, HIDDEN + 1, unless this PdsLogger is
-                being derived from an existing Logger of the same name, in which case it
-                will match the existing Logger's level.
+                the value for an existing PdsLogger is preserved; if there is already a
+                Logger of the same name, the default is False; for an entirely new
+                PdsLogger, the default is the minimum logging level, HIDDEN + 1.
             timestamps (bool, optional):
-                True to include timestamps in the log records. By default, this is True
-                unless this PdsLogger is being derived from an existing Logger of the same
-                name, in which case it is False.
+                True to include timestamps in the log records. By default, the value for
+                an existing PdsLogger is preserved; if there is already a Logger of the
+                same name, the default is False; for an entirely new PdsLogger, the
+                default is True.
             digits (int, optional):
-                Number of fractional digits in the seconds field of the timestamp.
+                Number of fractional digits in the seconds field of the timestamp. By
+                default, the value for an existing PdsLogger is preserved; otherwise, the
+                default is 6.
             lognames (bool, optional):
-                True to include the name of the logger in the log records. By default,
-                this is True unless this PdsLogger is being derived from an existing
-                Logger of the same name, in which case it is False.
+                True to include the name of the logger in the log records. By default, the
+                value for an existing PdsLogger is preserved; if there is already a Logger
+                of the same name, the default is False; for an entirely new PdsLogger, the
+                default is True.
             pid (bool, optional):
-                True to include the process ID in each log record.
+                True to include the process ID in each log record. By default, the value
+                for an existing PdsLogger is preserved; otherwise, the default is False.
             indent (bool, optional):
                 True to include a sequence of dashes in each log record to provide a
-                visual indication of the depth in a logging hierarchy. By default, this is
-                True unless this PdsLogger is being derived from an existing Logger of the
-                same name, in which case it is False.
+                visual indication of the depth in a logging hierarchy. By default, the
+                value for an existing PdsLogger is preserved; if there is already a Logger
+                of the same name, the default is False; for an entirely new PdsLogger, the
+                default is True.
             levelnames (bool, optional):
                 True to include the name of the log level, e.g., "ERROR", in the log
-                records. By default, this is True unless this PdsLogger is being derived
-                from an existing Logger of the same name, in which case it is False.
+                records. By default, the value for an existing PdsLogger is preserved; if
+                there is already a Logger of the same name, the default is False; for an
+                entirely new PdsLogger, the default is True.
             blanklines (bool, optional):
                 True to include a blank line in log files when a tier in the hierarchy is
-                closed; False otherwise.
+                closed; False otherwise. By default, the value for an existing PdsLogger
+                is preserved; otherwise, the default is True.
             colors (bool, optional):
-                True to color-code any log files generated, for Macintosh only.
+                True to color-code any log files generated, for Macintosh only. By
+                default, the value for an existing PdsLogger is preserved; otherwise, the
+                default is True.
             maxdepth (int, optional):
                 Maximum depth of the logging hierarchy, needed to prevent unlimited
-                recursion.
+                recursion. By default, the value for an existing PdsLogger is preserved;
+                otherwise, the default is 6.
         """
 
         if isinstance(logname, logging.Logger):
@@ -436,20 +449,38 @@ class PdsLogger(logging.Logger):
             logname = PdsLogger._full_logname(logname, parent)
 
         if logname in _LOOKUP:
-            pdslogger = _LOOKUP[logname]
-            pdslogger.set_format(level=level, timestamps=timestamps, digits=digits,
-                                 lognames=lognames, pid=pid, indent=indent,
-                                 levelnames=levelnames, blanklines=blanklines,
-                                 colors=colors, maxdepth=maxdepth)
-            pdslogger._merge_level_names(levels)
+            plogger = _LOOKUP[logname]
+            plogger.set_format(level=level, timestamps=timestamps, digits=digits,
+                               lognames=lognames, pid=pid, indent=indent,
+                               levelnames=levelnames, blanklines=blanklines,
+                               colors=colors, maxdepth=maxdepth)
+            plogger._merge_level_names(levels)
 
             for name, value in limits.items():
-                pdslogger.set_limit(name, value)
+                plogger.set_limit(name, value)
 
             roots = [roots] if isinstance(roots, str) else roots
-            pdslogger.add_root(*roots)
+            plogger.add_root(*roots)
 
-            return pdslogger
+            return plogger
+
+        # Set defaults depending on whether the Logger already exists
+        digits = 6 if digits is None else digits
+        pid = False if pid is None else pid
+        blanklines = True if blanklines is None else blanklines
+        colors = True if colors is None else colors
+        maxdepth = 6 if maxdepth is None else maxdepth
+
+        if logname in logging.Logger.manager.loggerDict:
+            timestamps = False if timestamps is None else timestamps
+            lognames = False if lognames is None else lognames
+            indent = False if indent is None else indent
+            levelnames = False if indent is None else indent
+        else:
+            timestamps = True if timestamps is None else timestamps
+            lognames = True if lognames is None else lognames
+            indent = True if indent is None else indent
+            levelnames = True if indent is None else indent
 
         return PdsLogger(logname, parent=parent, levels=levels, limits=limits,
                          roots=roots, level=level, timestamps=timestamps, digits=digits,
@@ -665,8 +696,9 @@ class PdsLogger(logging.Logger):
     @property
     def parent(self):
         """The parent of this PdsLogger."""
-        parent_ = self._logger.parent
-        return None if parent_ is None else PdsLogger.as_pdslogger(parent_)
+        if self._logger is None or self._logger.parent is None:
+            return None
+        return PdsLogger.as_pdslogger(self._logger.parent)
 
     @staticmethod
     def set_default_parent(parent):
@@ -709,7 +741,7 @@ class PdsLogger(logging.Logger):
             parent = _DEFAULT_PARENT_NAME
 
         if not parent:
-            return logname
+            return logname if logname else 'root'
 
         if isinstance(parent, logging.Logger):
             return parent.name + '.' + logname
@@ -778,7 +810,8 @@ class PdsLogger(logging.Logger):
                     elif old_level_name == alias:   # point aliases of old name to new
                         self._level_name_aliases[name] = level_name
 
-                if old_level_name:                  # alias old name to new name
+                # Alias old name to new name
+                if old_level_name and old_level_name != level_name:
                     self._level_name_aliases[old_level_name] = level_name
 
             # Add new name to the name lookup dictionary
@@ -787,6 +820,12 @@ class PdsLogger(logging.Logger):
             # Add mapping from level number to name if it's unique
             if level_num not in self._level_names:
                 self._level_names[level_num] = level_name
+
+        # Apply these level names to the parent logger to support propagation
+        # This will be automatically carried all the way to the root logger via recursion.
+        if self._logger is not None and self._logname != 'root':
+            logname = self._logname.rpartition('.')[0]
+            PdsLogger.get_logger(logname, parent='', levels=self._input_levels)
 
     ######################################################################################
     # Limit support
@@ -805,7 +844,7 @@ class PdsLogger(logging.Logger):
         if name not in self._level_by_name:
             raise ValueError('undefined level name: ' + repr(name))
 
-        self._limits_by_name[-1][name] = limit
+        self._limits_by_name[-1][name] = limit if limit >= 0 else BIGNUM
 
     def get_limit(self, name):
         """Get the current upper limit on the number of messages with this level name.
@@ -821,7 +860,7 @@ class PdsLogger(logging.Logger):
         if name not in self._level_by_name:
             raise KeyError('undefined level name: ' + repr(name))
 
-        return self._limits_by_name[-1].get(name, -1)
+        return self._limits_by_name[-1][name]
 
     def get_limits(self):
         """A dictionary of the current default upper limit on the number of messages with
@@ -830,7 +869,7 @@ class PdsLogger(logging.Logger):
 
         new_dict = {}
         for name in self._level_by_name:
-            new_dict[name] = self._limits_by_name[-1].get(name, -1)
+            new_dict[name] = self._limits_by_name[-1][name]
 
         return new_dict
 
@@ -1080,7 +1119,7 @@ class PdsLogger(logging.Logger):
 
     @property
     def propagate(self):
-        return self._logger.propagate if self._logger else False
+        return self._logger.propagate if self._logger else False    # False for EasyLogger
 
     @propagate.setter
     def propagate(self, value):
@@ -1214,14 +1253,15 @@ class PdsLogger(logging.Logger):
         self._titles.append((title, args, kwargs, header_logged))
 
         # Set the level-specific limits
-        self._limits_by_name.append(self._limits_by_name[-1].copy())
+        self._limits_by_name.append(defaultdict(int))
         for name, limit in limits.items():
-            self._limits_by_name[-1][name] = limit
+            self._limits_by_name[-1][name] = limit if limit >= 0 else BIGNUM
 
         # Unless overridden, each tier is bound by the limits of the tier above
-        for name, limit in self._limits_by_name[-1].items():
-            if name not in limits and limit >= 0:
-                new_limit = max(0, limit - self._counters_by_name[-1][name])
+        for name, limit in self._limits_by_name[-2].items():
+            if name not in self._limits_by_name[-1] and limit < BIGNUM:
+                count_so_far = sum(dict_[name] for dict_ in self._counters_by_name)
+                new_limit = max(0, limit - count_so_far)
                 self._limits_by_name[-1][name] = new_limit
 
         # Create new message counters for this tier
@@ -1469,13 +1509,13 @@ class PdsLogger(logging.Logger):
         if log_now:
             text = self._logged_text(level_name_for_log, message, filepath)
             self._logger_log(level_for_log, text, *args, **kwargs)
-            self._counters_by_name[-1][level_name_for_count] += 1
+            self._increment_count(level_name_for_count, suppressed=False)
             if not force:   # Log a suppression message next time this level is suppressed
                 self._suppressions_logged.discard(level_name_for_count)
 
         # Otherwise...
         else:
-            self._suppressed_by_name[-1][level_name_for_count] += 1
+            self._increment_count(level_name_for_count, suppressed=True)
 
             # If this is the first suppressed message due to the limit, notify
             if (not suppress and limit >= 0
@@ -1485,6 +1525,21 @@ class PdsLogger(logging.Logger):
                 text = self._logged_text(level_name_for_count, message)
                 self._logger_log(level_for_log, text)
                 self._suppressions_logged.add(level_name_for_count)
+
+    def _increment_count(self, name, suppressed=False):
+        """Increment the count of logged messages here and in the propagated parents."""
+
+        plogger = self
+        while plogger is not None:
+            if suppressed:
+                plogger._suppressed_by_name[-1][name] += 1
+            else:
+                plogger._counters_by_name[-1][name] += 1
+
+            if not plogger.propagate:
+                break
+
+            plogger = plogger.parent
 
     def debug(self, message, *args, filepath='', force=False, suppress=False, **kwargs):
         """Log a message with level == "debug".
@@ -1962,7 +2017,20 @@ class PdsLogger(logging.Logger):
             *kwargs: Additional keyword arguments passed to self._logger.log().
         """
 
-        if not self._logger.handlers:       # if no handlers, print
+        # Determine if any handlers are defined for this PdsLogger or its ancestry
+        has_handlers = False
+        plogger = self
+        while plogger is not None:
+            if plogger.handlers:
+                has_handlers = True
+                break
+
+            if not plogger.propagate:
+                break
+
+            plogger = plogger.parent
+
+        if not has_handlers:        # if no handlers, print
             print(self._format_message(level, message, *args, **kwargs))
         else:
             self._logger.log(level, message, *args, **kwargs)
@@ -2277,6 +2345,7 @@ class LoggerError(Exception):
 
 STDOUT_HANDLER = logging.StreamHandler(sys.stdout)
 STDOUT_HANDLER.setLevel(HIDDEN + 1)
+stdout_handler = STDOUT_HANDLER             # deprecated name
 NULL_HANDLER = logging.NullHandler()
 
 def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
