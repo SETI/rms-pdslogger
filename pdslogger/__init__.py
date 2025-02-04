@@ -182,7 +182,7 @@ _DEFAULT_PARENT_NAME = 'pds'
 
 _ATEXIT = False     # changed to True during `atexit` cleanup
 
-BIGNUM = 2**63 - 1  # a very large integer
+_BIGNUM = 2**63 - 1  # a very large integer
 
 ##########################################################################################
 # PdsLogger class
@@ -350,7 +350,7 @@ class PdsLogger(logging.Logger):
         self.set_level(level)
 
         self._input_limits = limits
-        self._limits_by_name = [defaultdict(lambda: BIGNUM)]    # pragma: no branch why??
+        self._limits_by_name = [defaultdict(lambda: _BIGNUM)]   # pragma: no branch why??
         self._limits_by_name[-1].update(_DEFAULT_LIMITS_BY_NAME)
         for level_name, level_num in limits.items():
             self.set_limit(level_name, level_num)
@@ -844,7 +844,7 @@ class PdsLogger(logging.Logger):
         if name not in self._level_by_name:
             raise ValueError('undefined level name: ' + repr(name))
 
-        self._limits_by_name[-1][name] = limit if limit >= 0 else BIGNUM
+        self._limits_by_name[-1][name] = limit if limit >= 0 else _BIGNUM
 
     def get_limit(self, name):
         """Get the current upper limit on the number of messages with this level name.
@@ -1255,11 +1255,11 @@ class PdsLogger(logging.Logger):
         # Set the level-specific limits
         self._limits_by_name.append(defaultdict(int))
         for name, limit in limits.items():
-            self._limits_by_name[-1][name] = limit if limit >= 0 else BIGNUM
+            self._limits_by_name[-1][name] = limit if limit >= 0 else _BIGNUM
 
         # Unless overridden, each tier is bound by the limits of the tier above
         for name, limit in self._limits_by_name[-2].items():
-            if name not in self._limits_by_name[-1] and limit < BIGNUM:
+            if name not in self._limits_by_name[-1] and limit < _BIGNUM:
                 count_so_far = sum(dict_[name] for dict_ in self._counters_by_name)
                 new_limit = max(0, limit - count_so_far)
                 self._limits_by_name[-1][name] = new_limit
