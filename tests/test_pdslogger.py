@@ -60,7 +60,7 @@ class Test_PdsLogger(unittest.TestCase):
 
         pl3 = PdsLogger.get_logger('test', limits={'debug': -1}, roots='dirpath/')
         self.assertIs(pl3, pl)
-        self.assertEqual(pl._limits_by_name[0]['debug'], -1)
+        self.assertGreater(pl._limits_by_name[0]['debug'], 1.e10)
         self.assertEqual(pl._limits_by_name[0]['error'], 22)
         self.assertEqual(pl.roots, ['dirpath/'])
 
@@ -333,12 +333,9 @@ class Test_PdsLogger(unittest.TestCase):
 
         pl = PdsLogger.get_logger('bb.cc', parent='aa')
         self.assertEqual(pl.name, 'aa.bb.cc')
-        self.assertEqual(pl.parent.name, 'root')
-        pl2 = PdsLogger.get_logger('aa.bb', parent='')
         self.assertEqual(pl.parent.name, 'aa.bb')
+        pl2 = PdsLogger.get_logger('aa', parent='')
         self.assertEqual(pl2.parent.name, 'root')
-        _ = PdsLogger.get_logger('aa', parent='')
-        self.assertEqual(pl2.parent.name, 'aa')
 
     def test_default_parent(self):
         RESET()
@@ -525,11 +522,11 @@ class Test_PdsLogger(unittest.TestCase):
         L = P.EasyLogger(timestamps=False, lognames=False, blanklines=False,
                          indent=False, limits={'debug': 4})
         self.assertEqual(L.get_limit('debug'), 4)
-        self.assertEqual(L.get_limit('error'), -1)
+        self.assertGreater(L.get_limit('error'), 1.e10)
         limit_dict = L.get_limits().copy()
-        limit_dict['debug'] = -1
+        del limit_dict['debug']
         for name, limit in limit_dict.items():
-            self.assertEqual(limit, -1, name)
+            self.assertGreater(limit, 1.e10, name)
         self.assertRaises(KeyError, L.get_limit, 'whatever')
 
         F = io.StringIO()
@@ -1217,6 +1214,113 @@ class Test_PdsLogger(unittest.TestCase):
         finally:
             if handler:
                 handler.close()  # Required for Windows to be able to delete the tree
+            shutil.rmtree(dirpath)
+
+    def test_propagation(self):
+        RESET()
+        c_logger = PdsLogger.get_logger('a.b.c', parent='', levels={'whatever': 20})
+        a_logger = PdsLogger.get_logger('a', parent='')
+        b_logger = PdsLogger.get_logger('a.b', parent='')
+
+        self.assertIn('whatever', c_logger._level_by_name)
+        self.assertIn('whatever', b_logger._level_by_name)
+        self.assertIn('whatever', a_logger._level_by_name)
+
+        dirpath = pathlib.Path(tempfile.mkdtemp()).resolve()
+        try:
+            a_handler = P.file_handler(dirpath / 'a.log')
+            b_handler = P.file_handler(dirpath / 'b.log')
+            c_handler = P.file_handler(dirpath / 'c.log')
+
+            a_logger.add_handler(a_handler)
+            b_logger.add_handler(b_handler)
+            c_logger.add_handler(c_handler)
+
+            handlers = [a_handler, b_handler, c_handler]
+            sizes = [0, 0, 0]
+
+            def got_bigger():
+                """1 where the filehandler has new content; 0 otherwise."""
+                answers = []
+                for k, handler in enumerate(handlers):
+                    new_size = os.path.getsize(handler.baseFilename)
+                    answers.append(int(new_size > sizes[k]))
+                    sizes[k] = new_size
+                return tuple(answers)
+
+            F = io.StringIO()
+            with redirect_stdout(F):
+                self.assertEqual(got_bigger(), (0, 0, 0))
+
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 1, 1))
+
+                b_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 1, 0))
+
+                a_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 0, 0))
+
+                b_logger.propagate = False
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (0, 1, 1))
+
+                c_logger.propagate = False
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (0, 0, 1))
+
+                b_logger.propagate = True
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (0, 0, 1))
+
+                c_logger.propagate = True
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 1, 1))
+
+                b_logger.remove_handler(b_handler)
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 0, 1))
+
+                c_logger.remove_all_handlers()
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 0, 0))
+
+                a_logger.remove_all_handlers()
+                c_logger.info('One INFO line logged to STDOUT')
+
+            result = F.getvalue()
+            answer = '| a.b.c || INFO | One INFO line logged to STDOUT\n'
+            self.assertTrue(result.endswith(answer))
+            self.assertNotIn('WHATEVER', result)
+
+            a_logger.add_handler(a_handler)
+            b_logger.add_handler(b_handler)
+            c_logger.add_handler(c_handler)
+
+            F = io.StringIO()
+            with redirect_stdout(F):
+                self.assertEqual(got_bigger(), (0, 0, 0))
+
+                c_logger.log('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (1, 1, 1))
+
+                c_logger.propagate = False
+                c_logger.info('WHATEVER', 'whatever')
+                self.assertEqual(got_bigger(), (0, 0, 1))
+
+                c_logger.remove_all_handlers()
+                c_logger.info('Another INFO line logged to STDOUT')
+                self.assertEqual(got_bigger(), (0, 0, 0))
+
+            result = F.getvalue()
+            answer = '| a.b.c || INFO | Another INFO line logged to STDOUT\n'
+            self.assertTrue(result.endswith(answer))
+            self.assertNotIn('WHATEVER', result)
+
+        finally:
+            a_handler.close()  # Required for Windows to be able to delete the tree
+            b_handler.close()  # Required for Windows to be able to delete the tree
+            c_handler.close()  # Required for Windows to be able to delete the tree
             shutil.rmtree(dirpath)
 
     ######################################################################################
