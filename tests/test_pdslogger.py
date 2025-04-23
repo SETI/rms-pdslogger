@@ -957,9 +957,27 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             for t in range(1, 4):
-                L.open(f'Tier {t}', f'file{t}.dat')
+                L.open(f'Tier {t}', f'file{t}.dat', blankline=(t==2))
             for t in range(3, 0, -1):
                 L.close()
+            L.close()
+        result = F.getvalue()
+        self.assertEqual(result, '| HEADER | Tier 1: file1.dat\n'
+                                 '\n'
+                                 '-| HEADER | Tier 2: file2.dat\n'
+                                 '--| HEADER | Tier 3: file3.dat\n'
+                                 '--| SUMMARY | Completed: Tier 3: file3.dat\n'
+                                 '-| SUMMARY | Completed: Tier 2: file2.dat\n'
+                                 '| SUMMARY | Completed: Tier 1: file1.dat\n'
+                                 '| SUMMARY | Completed: pds.easylog\n')
+
+        L = P.EasyLogger(timestamps=False, lognames=False, blanklines=False)
+        F = io.StringIO()
+        with redirect_stdout(F):
+            for t in range(1, 4):
+                L.open(f'Tier {t}', f'file{t}.dat')
+            for t in range(3, 0, -1):
+                L.close(blankline=(t==2))
             L.close()
         result = F.getvalue()
         self.assertEqual(result, '| HEADER | Tier 1: file1.dat\n'
@@ -967,6 +985,7 @@ class Test_PdsLogger(unittest.TestCase):
                                  '--| HEADER | Tier 3: file3.dat\n'
                                  '--| SUMMARY | Completed: Tier 3: file3.dat\n'
                                  '-| SUMMARY | Completed: Tier 2: file2.dat\n'
+                                 '\n'
                                  '| SUMMARY | Completed: Tier 1: file1.dat\n'
                                  '| SUMMARY | Completed: pds.easylog\n')
 
