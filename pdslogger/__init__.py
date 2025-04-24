@@ -1184,7 +1184,7 @@ class PdsLogger(logging.Logger):
             self.logger.close()
 
     def open(self, title, *args, filepath='', level=None, limits={}, handler=[],
-             force=False, **kwargs):
+             force=False, blankline=False, **kwargs):
         """Begin a new tier in the logging hierarchy.
 
         Parameters:
@@ -1209,6 +1209,9 @@ class PdsLogger(logging.Logger):
             force (bool, optional):
                 True to force the logging of the "open" messages, even if the current
                 logging level is above that specified by `level`.
+            blankline (bool, optional):
+                True to insert a blank line before the logger.
+
             **kwargs:
                 Zero or more keyword=value attributes to be substituted into the title
                 string using the string formatted operator.
@@ -1269,11 +1272,14 @@ class PdsLogger(logging.Logger):
         self._suppressed_by_name.append(defaultdict(int))
 
         # Update the handlers
-        handlers = handler if isinstance(handler, (list, tuple)) else [handler]
-        self.add_handler(*handlers, local=True)
+        if handler:
+            handlers = handler if isinstance(handler, (list, tuple)) else [handler]
+            self.add_handler(*handlers, local=True)
 
         # Write header message
         if header_logged:
+            if blankline:
+                self.blankline(header_level)
             self._logger_log(header_level, self._logged_text('HEADER', title, shift=-1))
 
         # For use of open() as a context manager
@@ -1314,7 +1320,7 @@ class PdsLogger(logging.Logger):
 
         return (criticals, errors, warnings, total)
 
-    def close(self, *, force=False):
+    def close(self, *, force=False, blankline=False):
         """Close the log at its current depth in the hierarchy.
 
         The closure is logged, plus a summary of the time elapsed and levels identified
@@ -1325,6 +1331,9 @@ class PdsLogger(logging.Logger):
                 True to force the logging of all summary messages. Alternatively use a
                 level or level name to force the summary messages only about logged
                 messages at this level and higher.
+            blankline (bool, optional):
+                True to insert a blank line in the log before closing if it would not
+                otherwise be inserted.
 
         Returns:
             tuple: (number of critical errors, number of errors, number of warnings, total
@@ -1393,6 +1402,8 @@ class PdsLogger(logging.Logger):
                 if level >= min_level_for_log:
                     self._logger_log(header_level, self._logged_text('SUMMARY', note,
                                                                      shift=-1))
+            if blankline or self._blanklines:
+                self.blankline(header_level)
 
         # Remove any handlers at this tier
         self.remove_handler(*self._local_handlers[-1])
@@ -1413,10 +1424,6 @@ class PdsLogger(logging.Logger):
 
         if self._logger and self._min_levels:
             self._logger.setLevel(self._min_levels[-1])
-
-        # Add a blank line (but not in handlers that were just closed)
-        if header_logged and self._blanklines:
-            self.blankline(header_level)
 
         return (criticals, errors, warnings, total)
 
