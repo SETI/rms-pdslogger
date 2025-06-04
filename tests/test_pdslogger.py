@@ -1447,7 +1447,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             for level in LEVELS:
-                L1.log(level, level, force=True)
+                L1.log(level, level, force='critical')
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
@@ -1481,7 +1481,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             for level in LEVELS:
-                L1.log(level, level, force=True)
+                L1.log(level, level, force=P.FATAL)
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
@@ -1507,6 +1507,12 @@ class Test_PdsLogger(unittest.TestCase):
             for level in LEVELS:
                 L.log(level, level)
                 L.log(level, level, force=True)
+        self.assertEqual(F.getvalue(), '')
+
+        with redirect_stdout(F):
+            for level in LEVELS:
+                L.log(level, level)
+                L.log(level, level, force='hidden')
         self.assertEqual(F.getvalue(), '')
 
     ######################################################################################

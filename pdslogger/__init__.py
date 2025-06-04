@@ -887,10 +887,17 @@ class PdsLogger(logging.Logger):
             *roots (str, Path, or FCPath): One or more root paths to suppress.
         """
 
-        for root_ in roots:
-            root_ = str(root_).rstrip('/') + '/'
-            if root_ not in self._roots:
-                self._roots.append(root_)
+        root_list = []          # there is a case in pdsfile where the input is a list
+        for root in roots:
+            if isinstance(root, (list, tuple, set)):
+                root_list += list(root)
+            else:
+                root_list.append(root)
+
+        for root in root_list:
+            root = str(root).rstrip('/') + '/'
+            if root not in self._roots:
+                self._roots.append(root)
 
         self._roots.sort(key=lambda x: (-len(x), x))    # longest patterns first
 
@@ -1211,7 +1218,6 @@ class PdsLogger(logging.Logger):
                 logging level is above that specified by `level`.
             blankline (bool, optional):
                 True to insert a blank line before the logger.
-
             **kwargs:
                 Zero or more keyword=value attributes to be substituted into the title
                 string using the string formatted operator.
@@ -1461,9 +1467,10 @@ class PdsLogger(logging.Logger):
                 argument is interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1498,9 +1505,17 @@ class PdsLogger(logging.Logger):
         limit = self._limits_by_name[-1].get(level_name_for_count, -1)
 
         # Determine whether to print
-        if force:
-            level_for_log = CRITICAL
-            log_now = True
+        if isinstance(force, str):
+            force = self._level_by_name[self._repair_level_name(force)]
+
+        forced = False
+        if not isinstance(force, bool):
+            level_for_log = max(force, level_for_log)
+            log_now = level_for_log >= self._min_levels[-1]
+            forced = log_now
+        elif force:
+            log_now = level_for_log >= self._min_levels[-1]
+            forced = log_now and limit >= 0 and count >= limit
         elif suppress:
             log_now = False
         elif level_for_log < self._min_levels[-1]:
@@ -1517,7 +1532,8 @@ class PdsLogger(logging.Logger):
             text = self._logged_text(level_name_for_log, message, filepath)
             self._logger_log(level_for_log, text, *args, **kwargs)
             self._increment_count(level_name_for_count, suppressed=False)
-            if not force:   # Log a suppression message next time this level is suppressed
+            # Log a suppression message next time this level is suppressed
+            if not forced:
                 self._suppressions_logged.discard(level_name_for_count)
 
         # Otherwise...
@@ -1561,9 +1577,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1589,9 +1606,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1617,9 +1635,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1645,9 +1664,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1673,9 +1693,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1702,9 +1723,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1730,9 +1752,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1758,9 +1781,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1790,9 +1814,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1822,9 +1847,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1852,9 +1878,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -1880,9 +1907,10 @@ class PdsLogger(logging.Logger):
                 interpreted as the `filepath`.
             filepath (str, Path, or FCPath, optional):
                 Path of the relevant file, if any.
-            force (bool, optional):
-                True to force message reporting even if the relevant limit has been
-                reached or the level falls below this PdsLogger's minimum.
+            force (bool, int, or str, optional):
+                True to log this message even if the relevant limit has been reached;
+                False otherwise. Alternatively, use a level or level name to log the
+                given message to handlers at or below a particular level.
             suppress (bool, optional):
                 True to suppress message reporting even if the relevant limit has not been
                 reached. The message is still included in the count. The `force` option
@@ -2004,7 +2032,7 @@ class PdsLogger(logging.Logger):
         Parameters:
             level (int or str): Logging level or level name.
             force (bool, optional): True to force the message to be logged even if the
-                logging level is above the specified level.
+                logging level is above the specified `level`.
         """
 
         if force:
@@ -2113,11 +2141,11 @@ class PdsLogger(logging.Logger):
             return ''
 
         abspath = str(Path(filepath).absolute().resolve())
-        for root_ in self._roots:
-            if filepath.startswith(root_) and filepath != root_:
-                return filepath[len(root_):]
-            if abspath.startswith(root_) and abspath != root_:      # pragma: no cover
-                return abspath[len(root_):]
+        for root in self._roots:
+            if filepath.startswith(root) and filepath != root:
+                return filepath[len(root):]
+            if abspath.startswith(root) and abspath != root:        # pragma: no cover
+                return abspath[len(root):]
 
         return filepath
 
