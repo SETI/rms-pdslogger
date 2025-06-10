@@ -680,6 +680,22 @@ class Test_PdsLogger(unittest.TestCase):
         self.assertTrue(parts[0].endswith('INFO: a/long/prefix/before/foo.bar'))
         self.assertTrue(parts[1].endswith('INFO: a/long/prefix/before/foo.bar'))
 
+        # Using a list or set instead
+        L = P.EasyLogger()
+        L.add_root({'a', 'b'})
+        F = io.StringIO()
+        with redirect_stdout(F):
+            L.info('INFO', 'a/foo.bar')
+            L.info('INFO', 'b/foo.bar')
+            L.info('INFO', 'bprefix/before/foo.bar')
+
+        result = F.getvalue()
+        parts = result.split('\n')
+        print(parts)
+        self.assertTrue(parts[0].endswith('INFO: foo.bar'))
+        self.assertTrue(parts[1].endswith('INFO: foo.bar'))
+        self.assertTrue(parts[2].endswith('INFO: bprefix/before/foo.bar'))
+
     ######################################################################################
     # Handler API
     ######################################################################################
@@ -1447,7 +1463,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             for level in LEVELS:
-                L1.log(level, level, force=True)
+                L1.log(level, level, force='critical')
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
@@ -1481,7 +1497,7 @@ class Test_PdsLogger(unittest.TestCase):
         F = io.StringIO()
         with redirect_stdout(F):
             for level in LEVELS:
-                L1.log(level, level, force=True)
+                L1.log(level, level, force=P.FATAL)
 
         result1 = F.getvalue()
         result1 = ''.join(TIMETAG.split(result1))
@@ -1507,6 +1523,12 @@ class Test_PdsLogger(unittest.TestCase):
             for level in LEVELS:
                 L.log(level, level)
                 L.log(level, level, force=True)
+        self.assertEqual(F.getvalue(), '')
+
+        with redirect_stdout(F):
+            for level in LEVELS:
+                L.log(level, level)
+                L.log(level, level, force='hidden')
         self.assertEqual(F.getvalue(), '')
 
     ######################################################################################
