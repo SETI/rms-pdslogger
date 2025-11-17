@@ -2454,7 +2454,8 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
                     match = regex.match(filepath.name)
                     if match:
                         max_version = max(int(match.group(1)), max_version)
-            except NotImplementedError:
+            except NotImplementedError:  # pragma: no cover
+                # There are currently no remote file systems that don't support glob
                 scheme = str(logpath).partition('://')[0]
                 raise ValueError('numbered rotation is not supported for remote scheme '
                                  f'"{scheme}:"')
