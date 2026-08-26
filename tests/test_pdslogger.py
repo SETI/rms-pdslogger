@@ -1850,6 +1850,7 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertTrue(recs[-3].endswith('This is a warning'))
             self.assertTrue(recs[-2].endswith('This is an error'))
 
+            handler.close()
             with warnings.catch_warnings():  # ignore the known warning about AAREADME.TXT
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
