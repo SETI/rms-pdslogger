@@ -1854,6 +1854,10 @@ class Test_PdsLogger(unittest.TestCase):
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
 
+            # remove_all_handlers() does not close the handler, and a log file cannot be
+            # rotated on Windows while it is still open.
+            handler.close()
+
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
 
             URI = ('https://pds-rings.seti.org/holdings/volumes/'

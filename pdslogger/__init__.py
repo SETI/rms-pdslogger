@@ -2454,7 +2454,7 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
                     match = regex.match(filepath.name)
                     if match:
                         max_version = max(int(match.group(1)), max_version)
-            except NotImplementedError:
+            except NotImplementedError:                     # pragma: no cover
                 scheme = str(logpath).partition('://')[0]
                 raise ValueError('numbered rotation is not supported for remote scheme '
                                  f'"{scheme}:"')
@@ -2466,7 +2466,11 @@ def file_handler(logpath, level=HIDDEN+1, rotation='none', suffix=''):
             os.rename(local_logpath, versioned_local_logpath)
             try:
                 versioned_logpath.upload()
-            except NotImplementedError:                     # pragma: no cover
+            except NotImplementedError:
+                # This scheme does not support uploads, so numbered rotation cannot be
+                # completed. Restore the original log file before raising the error, so
+                # that nothing has been changed.
+                os.rename(versioned_local_logpath, local_logpath)
                 scheme = str(logpath).partition('://')[0]
                 raise ValueError('numbered rotation is not supported for remote scheme '
                                  f'"{scheme}:"')
