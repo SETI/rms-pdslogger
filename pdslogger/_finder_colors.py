@@ -28,12 +28,17 @@ def set_color(filename, color_name):
     if sys.platform != 'darwin':
         return
 
-    attrs = xattr.xattr(filename)
-    finder_attrs = attrs.copy().get(FINDER_KEY, BYTES32)
-    flags = list(unpack(32*'B', finder_attrs))
-    flags[9] = COLORS.index(color_name) * 2
-    finder_attrs = pack(32*'B', *flags)
-    attrs.set(FINDER_KEY, finder_attrs)
+    try:
+        attrs = xattr.xattr(filename)
+        finder_attrs = attrs.copy().get(FINDER_KEY, BYTES32)
+        flags = list(unpack(32*'B', finder_attrs))
+        flags[9] = COLORS.index(color_name) * 2
+        finder_attrs = pack(32*'B', *flags)
+        attrs.set(FINDER_KEY, finder_attrs)
+    except OSError:
+        # Extended attributes are not supported on some file systems, e.g., remote
+        # mounts. In such cases, just leave the file's color unchanged.
+        pass
 
 # Old code...
 # import os
