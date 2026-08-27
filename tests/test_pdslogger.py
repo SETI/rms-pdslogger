@@ -1850,14 +1850,13 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertTrue(recs[-3].endswith('This is a warning'))
             self.assertTrue(recs[-2].endswith('This is an error'))
 
-            handler.close()
-            with warnings.catch_warnings():  # ignore the known warning about AAREADME.TXT
-                warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
-                pl.remove_all_handlers()
-
             # remove_all_handlers() does not close the handler, and a log file cannot be
             # rotated on Windows while it is still open.
             handler.close()
+
+            with warnings.catch_warnings():  # ignore the known warning about AAREADME.TXT
+                warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
+                pl.remove_all_handlers()
 
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
 
