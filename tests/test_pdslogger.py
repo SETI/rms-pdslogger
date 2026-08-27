@@ -1850,12 +1850,21 @@ class Test_PdsLogger(unittest.TestCase):
             self.assertTrue(recs[-3].endswith('This is a warning'))
             self.assertTrue(recs[-2].endswith('This is an error'))
 
+            # remove_all_handlers() does not close the handler, and a log file cannot be
+            # rotated on Windows while it is still open.
             handler.close()
+
             with warnings.catch_warnings():  # ignore the known warning about AAREADME.TXT
                 warnings.filterwarnings('ignore', message=r'.*cannot be uploaded')
                 pl.remove_all_handlers()
 
             self.assertRaises(ValueError, file_handler, fcpath, rotation='number')
+
+            # The failed rotation must have been rolled back, leaving the original local
+            # file in place rather than only the versioned copy.
+            local_path = fcpath.get_local_path()
+            self.assertTrue(local_path.exists())
+            self.assertFalse((local_path.parent / 'AAREADME_v001.TXT').exists())
 
             URI = ('https://pds-rings.seti.org/holdings/volumes/'
                    'COCIRS_1xxx/COCIRS_1001/test.log')      # remote file doesn't exist
